@@ -107,7 +107,7 @@ BEGIN
         GROUP BY "sku","country"                              -- added country
     ),
 
-    "futurePpr" AS (
+    "future_ppr" AS (
         SELECT
             ppr_future."sku",
             ppr_future."company",
@@ -171,7 +171,7 @@ BEGIN
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
-        LEFT JOIN "futurePpr" future_ppr
+        LEFT JOIN "future_ppr" future_ppr
             ON future_ppr."sku" = d."sku"
             AND future_ppr."company" = eh."company"
             AND future_ppr.rn = 1
