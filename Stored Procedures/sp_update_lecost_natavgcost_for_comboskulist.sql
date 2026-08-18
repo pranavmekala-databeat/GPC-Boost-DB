@@ -31,6 +31,7 @@ BEGIN
     FROM "tEventOffer" eoh
     JOIN "tEvent" eh ON eh."eventId" = eoh."eventId"
     WHERE eoh."offerId" = p_offerid
+      AND eh."status" IN ('Open', 'Locked')
     LIMIT 1;
  
     ------------------------------------------------------------------
@@ -100,7 +101,7 @@ BEGIN
         GROUP BY "sku","country"                              -- added country
     ),
 
-    "futurePpr" AS (
+    "future_ppr" AS (
         SELECT
             ppr_future."sku",
             ppr_future."company",
@@ -113,7 +114,6 @@ BEGIN
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
-               AND ppr_future.rn = 1
     ),
  
     data AS (
@@ -165,9 +165,10 @@ BEGIN
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
-        LEFT JOIN "futurePpr" future_ppr
+        LEFT JOIN "future_ppr" future_ppr
             ON future_ppr."sku" = d."sku"
             AND future_ppr."company" = eh."company"
+            AND future_ppr.rn = 1
        
         LEFT JOIN "pivoted_prices" pp
             ON pp."sku" = d."sku" AND pp."country" = eh."country"   -- added country match
@@ -179,6 +180,8 @@ BEGIN
             ON inv."sku" = d."sku"
             and inv."company" in (eh."company",'12','52')
         WHERE d."offerId" = p_offerId
+          AND d."isSkuActive" = TRUE
+          AND eh."status" IN ('Open', 'Locked')
         GROUP BY
             d."sku", d."offerNo", d."offerId",
             eoh."offerId", s."averageMonthlySales",
