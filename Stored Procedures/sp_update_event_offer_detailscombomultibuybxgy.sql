@@ -151,6 +151,7 @@ BEGIN
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+	      AND ppr_future.rn=1
          
     ),
 
@@ -385,7 +386,7 @@ END,
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
-          AND future_ppr.rn = 1
+          AND ppr_future.rn = 1
     ),
 
       updateEventOfferDtlForBXGY AS (
