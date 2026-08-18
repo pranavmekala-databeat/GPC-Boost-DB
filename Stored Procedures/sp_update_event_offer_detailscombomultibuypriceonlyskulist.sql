@@ -152,7 +152,7 @@ BEGIN
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
-          AND ppr_futur.rn = 1
+          AND ppr_future.rn = 1
     ),
 
       updateEventOfferDtlForComboList AS (
@@ -395,7 +395,11 @@ END,
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+<<<<<<< Updated upstream
 	      AND ppr_future.rn=1
+=======
+          AND ppr_future.rn=1
+>>>>>>> Stashed changes
     ),
 
       updateEventOfferDtlForMultiBuySKUList AS (
@@ -460,8 +464,11 @@ END,
         LEFT JOIN "futurePpr_MultiBuyList" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
+<<<<<<< Updated upstream
            
 
+=======
+>>>>>>> Stashed changes
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"
            AND config."country" = eh."country"
@@ -637,7 +644,11 @@ END,
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+<<<<<<< Updated upstream
 	      AND ppr_future.rn=1
+=======
+          AND ppr_future.rn=1
+>>>>>>> Stashed changes
     ),
 
       updateEventOfferDtlForPriceOnlySKUList AS (
