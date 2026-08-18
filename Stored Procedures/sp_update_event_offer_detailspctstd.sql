@@ -137,20 +137,15 @@ BEGIN
 --STDRangePrice
 RAISE NOTICE '[%] START UPDATE tEventOfferDetail | offerType=STD Range Price | offerTypeId=14', clock_timestamp();
 WITH future_ppr AS (
-      SELECT ranked_future_ppr."sku", ranked_future_ppr."company",
-             ranked_future_ppr."pricePoint6IncludingGst", ranked_future_ppr."startDate"
-      FROM (
-          SELECT ppr_future."sku", ppr_future."company",
-                 ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
-                 ROW_NUMBER() OVER (
-                     PARTITION BY ppr_future."sku", ppr_future."company"
-                     ORDER BY ppr_future."startDate" ASC
-                 ) AS rn
-          FROM "tPriceProductRules" ppr_future
-          WHERE ppr_future."startDate" > CURRENT_DATE
-            AND ppr_future."isActive" = TRUE
-      ) ranked_future_ppr
-      WHERE ranked_future_ppr.rn = 1
+      SELECT ppr_future."sku", ppr_future."company",
+             ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
+             ROW_NUMBER() OVER (
+                 PARTITION BY ppr_future."sku", ppr_future."company"
+                 ORDER BY ppr_future."startDate" ASC
+             ) AS rn
+      FROM "tPriceProductRules" ppr_future
+      WHERE ppr_future."startDate" > CURRENT_DATE
+        AND ppr_future."isActive" = TRUE
   ),
 
   updateEventOfferDtlForSTDRangePrice AS (
@@ -169,7 +164,7 @@ WITH future_ppr AS (
           ppr."pricePoint6",
           ppr."pricePoint6IncludingGst",
           future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-          future_ppr."startDate" AS "futureEffectiveDate",
+          future_ppr."startDate" AS "futureEdEffectiveDate",
           p."vendorBaseCost",
           p."nationalAvgCost",
           eoh."spacePurchase",
@@ -205,6 +200,7 @@ WITH future_ppr AS (
       LEFT JOIN future_ppr
           ON future_ppr."sku" = eod."sku"
           AND future_ppr."company" = eh."company"
+          AND future_ppr.rn = 1
       INNER JOIN "tConfig" config ON config."configkey" = eh."channel" AND config."country" = eh."country" AND config."configtype" = 'SalesType'
       LEFT JOIN tmp_pivoted_prices_pctstd pp ON pp."sku" = eod."sku" AND pp."country" = eh."country" AND pp."company" = eh."company"
       LEFT JOIN tmp_inventory_soh_pctstd inv ON inv."sku" = eod."sku" AND inv."company" = eh."company"
@@ -269,7 +265,7 @@ WITH future_ppr AS (
                   END,
                   2
               )
-          END AS future_ed_price
+          END AS "futureEdPrice"
       FROM updateEventOfferDtlForSTDRangePrice d
   ),
 
@@ -288,8 +284,8 @@ WITH future_ppr AS (
                ELSE ROUND(d."advertisedPriceGst" / (1 + COALESCE(d.gst_value, 0)), 2)
           END AS new_advertisedPrice,
           ROUND(d."nationalAvgCost", 2) AS natAvgCost,
-          d.future_ed_price AS calculated_future_rrp,
-          d."futureEffectiveDate" AS future_effective_date
+          d."futureEdPrice" AS "futureEdPrice",
+          d."futureEdEffectiveDate" AS "futureEdEffectiveDate"
       FROM "baseRrpCalculation" d
   )
     UPDATE "tEventOfferDetail" e
@@ -298,8 +294,8 @@ WITH future_ppr AS (
         "everydayPrice" = Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2),
         "everydayPriceGst" = c.new_everydayPriceGst,
         "everydayPriceGstSys" = c.new_everydayPriceGst,
-        "futureEdPrice" = c.calculated_future_rrp,
-        "futureEdEffectiveDate" = c.future_effective_date,
+        "futureEdPrice" = c."futureEdPrice",
+        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "advertisedPriceGst" = c.new_advertisedPriceGst,
         "advertisedPrice" = c.new_advertisedPrice,
         "calculatedSaveValue"= Round(c.new_everydayPriceGst-c.new_advertisedPriceGst,2),
@@ -366,20 +362,15 @@ RAISE NOTICE '[%] START UPDATE tEventOfferDetail | offerType=PCT Off Range | off
 WITH
 
   future_ppr AS (
-      SELECT ranked_future_ppr."sku", ranked_future_ppr."company",
-             ranked_future_ppr."pricePoint6IncludingGst", ranked_future_ppr."startDate"
-      FROM (
-          SELECT ppr_future."sku", ppr_future."company",
-                 ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
-                 ROW_NUMBER() OVER (
-                     PARTITION BY ppr_future."sku", ppr_future."company"
-                     ORDER BY ppr_future."startDate" ASC
-                 ) AS rn
-          FROM "tPriceProductRules" ppr_future
-          WHERE ppr_future."startDate" > CURRENT_DATE
-            AND ppr_future."isActive" = TRUE
-      ) ranked_future_ppr
-      WHERE ranked_future_ppr.rn = 1
+      SELECT ppr_future."sku", ppr_future."company",
+             ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
+             ROW_NUMBER() OVER (
+                 PARTITION BY ppr_future."sku", ppr_future."company"
+                 ORDER BY ppr_future."startDate" ASC
+             ) AS rn
+      FROM "tPriceProductRules" ppr_future
+      WHERE ppr_future."startDate" > CURRENT_DATE
+        AND ppr_future."isActive" = TRUE
   ),
 
   updateEventOfferDtlForPCTOffRange AS (
@@ -404,7 +395,7 @@ WITH
           ppr."pricePoint6",
           ppr."pricePoint6IncludingGst",
           future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-          future_ppr."startDate" AS "futureEffectiveDate",
+          future_ppr."startDate" AS "futureEdEffectiveDate",
           p."vendorBaseCost",
           p."nationalAvgCost",
           eoh."incrementalPercentage",
@@ -443,6 +434,7 @@ WITH
       LEFT JOIN future_ppr
           ON future_ppr."sku" = eod."sku"
           AND future_ppr."company" = eh."company"
+          AND future_ppr.rn = 1
 
       INNER JOIN "tConfig" config
           ON config."configkey" = eh."channel"
@@ -519,7 +511,7 @@ WITH
                   END,
                   2
               )
-          END AS future_ed_price
+          END AS "futureEdPrice"
       FROM updateEventOfferDtlForPCTOffRange d
   ),
 
@@ -540,8 +532,8 @@ WITH
               WHEN d."clearance" = 'Y' THEN ROUND(d.base_rrp_price / (1 + COALESCE(d.gst_value, 0)), 2)
               ELSE ROUND((d.base_rrp_price - (d.base_rrp_price * d."savePercent" / 100)) / (1 + COALESCE(d.gst_value, 0)), 2)
           END AS new_advertisedPrice,
-          d.future_ed_price AS calculated_future_rrp,
-          d."futureEffectiveDate" AS future_effective_date
+          d."futureEdPrice" AS "futureEdPrice",
+          d."futureEdEffectiveDate" AS "futureEdEffectiveDate"
       FROM "baseRrpCalculation" d
   )
     UPDATE "tEventOfferDetail" e
@@ -550,8 +542,8 @@ WITH
         "everydayPrice" = Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2),
         "everydayPriceGst" = c.new_everydayPriceGst,
         "everydayPriceGstSys" = c.new_everydayPriceGst,
-        "futureEdPrice" = c.calculated_future_rrp,
-        "futureEdEffectiveDate" = c.future_effective_date,
+        "futureEdPrice" = c."futureEdPrice",
+        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "advertisedPriceGst"= c.new_advertisedPriceGst,
         "advertisedPrice"= c.new_advertisedPrice,
 "calculatedSaveValue"= Round(e."everydayPriceGst"-c.new_advertisedPriceGst,2),

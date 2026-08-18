@@ -175,7 +175,7 @@ BEGIN
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
             future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEffectiveDate",
+            future_ppr."startDate" AS "futureEdEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost",
             eoh."spacePurchase",
@@ -292,7 +292,7 @@ BEGIN
                     END,
                     2
                 )
-            END AS future_ed_price
+            END AS "futureEdPrice"
         FROM updateEventOfferDtlForComboList d
     ),
 
@@ -308,8 +308,8 @@ BEGIN
             CASE WHEN d."clearance" = 'Y' THEN ROUND(d.base_rrp_price / (1 + COALESCE(d.gst_value, 0)),2)
             ELSE ROUND((d."advertisedPriceGst") / (1 + COALESCE(d.gst_value, 0)),2) END AS new_advertisedPrice,
             ROUND(d."nationalAvgCost",2) as natAvgCost,
-            d.future_ed_price AS calculated_future_rrp,
-            d."futureEffectiveDate" AS future_effective_date
+            d."futureEdPrice" AS "futureEdPrice",
+            d."futureEdEffectiveDate" AS "futureEdEffectiveDate"
         FROM "baseRrpCalculation_ComboList" d
     )
     UPDATE "tEventOfferDetail" e
@@ -318,8 +318,8 @@ BEGIN
         "everydayPrice" = Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2),
         "everydayPriceGst" = c.new_everydayPriceGst,
         "everydayPriceGstSys" = c.new_everydayPriceGst,
-        "futureEdPrice" = c.calculated_future_rrp,
-        "futureEdEffectiveDate" = c.future_effective_date,
+        "futureEdPrice" = c."futureEdPrice",
+        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "advertisedPriceGst" = c.new_advertisedPriceGst,
         "advertisedPrice" = c.new_advertisedPrice,
         "calculatedSaveValue"= Round(c.new_everydayPriceGst-c.new_advertisedPriceGst,2),
@@ -420,7 +420,7 @@ END,
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
             future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEffectiveDate",
+            future_ppr."startDate" AS "futureEdEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost",
             eoh."incrementalPercentage",
@@ -534,7 +534,7 @@ END,
                     END,
                     2
                 )
-            END AS future_ed_price
+            END AS "futureEdPrice"
         FROM updateEventOfferDtlForMultiBuySKUList d
     ),
 
@@ -550,8 +550,8 @@ END,
             ELSE d."advertisedPriceGst" END AS new_advertisedPriceGst,
             CASE WHEN d."clearance" = 'Y' THEN ROUND(d.base_rrp_price / (1 + COALESCE(d.gst_value, 0)),2)
             ELSE ROUND((d."advertisedPriceGst") / (1 + COALESCE(d.gst_value, 0)),2) END AS new_advertisedPrice,
-            d.future_ed_price AS calculated_future_rrp,
-            d."futureEffectiveDate" AS future_effective_date
+            d."futureEdPrice" AS "futureEdPrice",
+            d."futureEdEffectiveDate" AS "futureEdEffectiveDate"
         FROM "baseRrpCalculation_MultiBuyList" d
     )
     UPDATE "tEventOfferDetail" e
@@ -560,8 +560,8 @@ END,
         "everydayPrice" = Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2),
         "everydayPriceGst" = c.new_everydayPriceGst,
         "everydayPriceGstSys" = c.new_everydayPriceGst,
-        "futureEdPrice" = c.calculated_future_rrp,
-        "futureEdEffectiveDate" = c.future_effective_date,
+        "futureEdPrice" = c."futureEdPrice",
+        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "advertisedPriceGst"= c.new_advertisedPriceGst,
         "advertisedPrice" = c.new_advertisedPrice,
         "calculatedSaveValue"= Round(e."everydayPriceGst"-c.new_advertisedPriceGst,2),
@@ -658,7 +658,7 @@ END,
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
             future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEffectiveDate",
+            future_ppr."startDate" AS "futureEdEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost",
             eoh."incrementalPercentage",
@@ -774,7 +774,7 @@ END,
                     END,
                     2
                 )
-            END AS future_ed_price
+            END AS "futureEdPrice"
         FROM updateEventOfferDtlForPriceOnlySKUList d
     ),
 
@@ -788,8 +788,8 @@ END,
             THEN CAST(ROUND((d."incrementalPercentage"::numeric / 100)* ROUND(d.calc_units)::numeric) AS integer)
             ELSE d."categoryforecast" END as categoryFcst,
             ROUND(d."nationalAvgCost",2) as natAvgCost,
-            d.future_ed_price AS calculated_future_rrp,
-            d."futureEffectiveDate" AS future_effective_date
+            d."futureEdPrice" AS "futureEdPrice",
+            d."futureEdEffectiveDate" AS "futureEdEffectiveDate"
         FROM "baseRrpCalculation_PriceOnlyList" d
     )
     ---Price Only (SKU LISt)
@@ -801,8 +801,8 @@ END,
         "advertisedPriceGst" = c.new_everydayPriceGst,
         "advertisedPrice" = Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2),
         "everydayPriceGstSys" = c.new_everydayPriceGst,
-        "futureEdPrice" = c.calculated_future_rrp,
-        "futureEdEffectiveDate" = c.future_effective_date,
+        "futureEdPrice" = c."futureEdPrice",
+        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "calculatedSaveValue"=0,
         "calculatedSavePercentage" = 0,
         "categoryforecast" = c.categoryFcst,

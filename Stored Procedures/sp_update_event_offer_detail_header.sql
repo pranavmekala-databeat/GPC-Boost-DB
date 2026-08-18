@@ -156,7 +156,7 @@ BEGIN
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
             future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEffectiveDate",
+            future_ppr."startDate" AS "futureEdEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost" AS natAvgCost,
             eoh."incrementalPercentage",
@@ -331,7 +331,7 @@ BEGIN
                 2
             )
         END,
-        "futureEdEffectiveDate" = c."futureEffectiveDate",
+        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "advertisedPriceGst"= c.new_advertisedPriceGst ,
         "advertisedPrice"= c.new_advertisedPrice ,
         "gst" = c.gst_value ,
@@ -590,7 +590,7 @@ WHERE o."offerId" = s."offerId"
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
             future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEffectiveDate",
+            future_ppr."startDate" AS "futureEdEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost" ,
             bool_and(p."isActive") AS "isActive",
@@ -770,7 +770,7 @@ WHERE o."offerId" = s."offerId"
                 2
             )
         END,
-        "futureEdEffectiveDate" = c."futureEffectiveDate",
+        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "advertisedPriceGst" = c.new_advertisedPriceGst ,
         "gst" = c.gst_value ,
         "advertisedPrice" = c.new_advertisedPrice ,
@@ -1024,7 +1024,7 @@ WHERE o."offerId" = s."offerId"
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
             future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEffectiveDate",
+            future_ppr."startDate" AS "futureEdEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost" ,
             bool_and(p."isActive") AS "isActive",
@@ -1204,7 +1204,7 @@ WHERE o."offerId" = s."offerId"
                 2
             )
         END,
-        "futureEdEffectiveDate" = c."futureEffectiveDate",
+        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "advertisedPriceGst" = c.new_advertisedPriceGst ,
         "advertisedPrice" = c.new_advertisedPrice ,
         "gst" = c.gst_value ,
@@ -1457,7 +1457,7 @@ WHERE o."offerId" = s."offerId"
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
             future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEffectiveDate",
+            future_ppr."startDate" AS "futureEdEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost" AS natAvgCost,
             bool_and(p."isActive") AS "isActive",
@@ -1654,7 +1654,7 @@ WHERE o."offerId" = s."offerId"
                 2
             )
         END,
-        "futureEdEffectiveDate" = c."futureEffectiveDate",
+        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "advertisedPriceGst"= c.new_advertisedPriceGst ,
         "advertisedPrice" = c.new_advertisedPrice ,
         "gst" = c.gst_value ,
@@ -1903,7 +1903,7 @@ END IF;
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
             future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEffectiveDate",
+            future_ppr."startDate" AS "futureEdEffectiveDate",
             eod."isCategoryForecastLocked",
             p."vendorCostPerEach",
             p."nationalAvgCost" ,
@@ -2082,7 +2082,7 @@ END IF;
                 2
             )
         END,
-        "futureEdEffectiveDate" = c."futureEffectiveDate",
+        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "calculatedSaveValue"=0,
         "calculatedSavePercentage" = 0,
         "gst" = c.gst_value ,

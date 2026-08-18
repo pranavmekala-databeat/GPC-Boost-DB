@@ -136,7 +136,7 @@ BEGIN
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
             future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEffectiveDate",
+            future_ppr."startDate" AS "futureEdEffectiveDate",
 
             p."vendorCostPerEach",
             p."nationalAvgCost",
@@ -293,7 +293,7 @@ BEGIN
                     END,
                     2
                 )
-            END AS future_ed_price
+            END AS "futureEdPrice"
         FROM data d
     )
     UPDATE "tEventOfferDetail" e
@@ -306,8 +306,8 @@ BEGIN
  
         "everydayPriceGstSys" = ROUND(d.base_rrp_price,2),
 
-        "futureEdPrice" = d.future_ed_price,
-        "futureEdEffectiveDate" = d."futureEffectiveDate",
+        "futureEdPrice" = d."futureEdPrice",
+        "futureEdEffectiveDate" = d."futureEdEffectiveDate",
  
         "stockOnHandStore" =  d.sohStore ,
         "stockOnHandDC"    = d.sohDc ,

@@ -1,3 +1,5 @@
+--DROP FUNCTION IF EXISTS public.has_future_rrp(integer,integer);
+
 CREATE OR REPLACE FUNCTION public.has_future_rrp(
     p_offer_id integer,
     p_offer_no integer
