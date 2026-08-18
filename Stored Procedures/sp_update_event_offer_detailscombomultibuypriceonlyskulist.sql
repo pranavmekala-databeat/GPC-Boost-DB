@@ -152,6 +152,7 @@ BEGIN
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+          AND ppr_futur.rn = 1
     ),
 
       updateEventOfferDtlForComboList AS (
@@ -216,7 +217,7 @@ BEGIN
         LEFT JOIN "futurePpr_ComboList" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
+           
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"

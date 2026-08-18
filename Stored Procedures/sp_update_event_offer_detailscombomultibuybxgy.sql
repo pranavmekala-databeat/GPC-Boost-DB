@@ -151,6 +151,7 @@ BEGIN
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+          AND future_ppr.rn = 1
     ),
 
       updateEventOfferDtlForCombo  AS (
@@ -211,7 +212,7 @@ BEGIN
         LEFT JOIN "futurePpr_Combo" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
+            
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"
@@ -384,6 +385,7 @@ END,
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+          AND future_ppr.rn = 1
     ),
 
       updateEventOfferDtlForBXGY AS (
@@ -444,7 +446,7 @@ END,
         LEFT JOIN "futurePpr_BXGY" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
+           
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"
@@ -620,6 +622,7 @@ END,
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+          AND future_ppr.rn = 1
     ),
 
       updateEventOfferDtlForMultiBuy AS (
@@ -680,7 +683,7 @@ END,
         LEFT JOIN "futurePpr_MultiBuy" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
+          
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"

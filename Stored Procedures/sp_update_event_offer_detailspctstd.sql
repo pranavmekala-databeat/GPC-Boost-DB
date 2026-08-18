@@ -146,6 +146,7 @@ WITH future_ppr AS (
       FROM "tPriceProductRules" ppr_future
       WHERE ppr_future."startDate" > CURRENT_DATE
         AND ppr_future."isActive" = TRUE
+        AND ppr_future.rn=1
   ),
 
   updateEventOfferDtlForSTDRangePrice AS (
@@ -200,7 +201,7 @@ WITH future_ppr AS (
       LEFT JOIN future_ppr
           ON future_ppr."sku" = eod."sku"
           AND future_ppr."company" = eh."company"
-          AND future_ppr.rn = 1
+          
       INNER JOIN "tConfig" config ON config."configkey" = eh."channel" AND config."country" = eh."country" AND config."configtype" = 'SalesType'
       LEFT JOIN tmp_pivoted_prices_pctstd pp ON pp."sku" = eod."sku" AND pp."country" = eh."country" AND pp."company" = eh."company"
       LEFT JOIN tmp_inventory_soh_pctstd inv ON inv."sku" = eod."sku" AND inv."company" = eh."company"
@@ -371,6 +372,7 @@ WITH
       FROM "tPriceProductRules" ppr_future
       WHERE ppr_future."startDate" > CURRENT_DATE
         AND ppr_future."isActive" = TRUE
+        AND ppr_future.rn=1
   ),
 
   updateEventOfferDtlForPCTOffRange AS (
@@ -434,7 +436,7 @@ WITH
       LEFT JOIN future_ppr
           ON future_ppr."sku" = eod."sku"
           AND future_ppr."company" = eh."company"
-          AND future_ppr.rn = 1
+       
 
       INNER JOIN "tConfig" config
           ON config."configkey" = eh."channel"

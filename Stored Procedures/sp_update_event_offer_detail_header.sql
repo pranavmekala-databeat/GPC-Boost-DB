@@ -136,6 +136,7 @@ BEGIN
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+          AND ppr_future.rn=1
     ),
 
     updateEventOfferDtlForPCTOffRange AS (
@@ -190,7 +191,7 @@ BEGIN
          LEFT JOIN "future_ppr" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
+           
          LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
          LEFT JOIN "tInventory" inv ON inv."sku" = eod."sku" and inv."company" IN (eh."company",'12','52')
          LEFT JOIN "tSalesY1" s
@@ -565,6 +566,7 @@ WHERE o."offerId" = s."offerId"
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+          AND ppr_future.rn=1
     ),
 
     updateEventOfferDtlForSTDRangePrice AS (
@@ -999,6 +1001,7 @@ WHERE o."offerId" = s."offerId"
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+          AND ppr_future.rn=1
     ),
 
     updateEventOfferDtlForComboList AS (
@@ -1062,7 +1065,7 @@ WHERE o."offerId" = s."offerId"
         LEFT JOIN "future_ppr" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
+            
         LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
         LEFT JOIN "tInventory" inv
             ON inv."sku" = eod."sku"
@@ -1430,6 +1433,7 @@ WHERE o."offerId" = s."offerId"
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+          AND ppr_future.rn=1
     ),
 
     updateEventOfferDtlForMultiBuySKUList AS (
@@ -1493,7 +1497,6 @@ WHERE o."offerId" = s."offerId"
         LEFT JOIN "future_ppr" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
         LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
         LEFT JOIN "tInventory" inv
             ON inv."sku" = eod."sku"
@@ -1879,6 +1882,7 @@ END IF;
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+          AND ppr_future.rn=1
     ),
 
     updateEventOfferDtlForPriceOnlySKUList AS (
@@ -1940,7 +1944,7 @@ END IF;
         LEFT JOIN "future_ppr" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
+            
         LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
         LEFT JOIN "tInventory" inv
             ON inv."sku" = eod."sku"

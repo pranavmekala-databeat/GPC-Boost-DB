@@ -113,6 +113,7 @@ BEGIN
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+               AND ppr_future.rn = 1
     ),
  
     data AS (
@@ -167,7 +168,7 @@ BEGIN
         LEFT JOIN "futurePpr" future_ppr
             ON future_ppr."sku" = d."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
+       
         LEFT JOIN "pivoted_prices" pp
             ON pp."sku" = d."sku" AND pp."country" = eh."country"   -- added country match
         LEFT JOIN "tSalesY1" s

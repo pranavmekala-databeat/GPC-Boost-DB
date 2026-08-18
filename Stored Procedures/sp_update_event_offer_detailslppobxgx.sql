@@ -148,6 +148,7 @@ BEGIN
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+          AND ppr_future.rn=1
     ),
 
        updateEventOfferDtlForLP AS (
@@ -209,7 +210,7 @@ BEGIN
         LEFT JOIN "futurePpr_LP" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
+            
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"
@@ -387,6 +388,7 @@ END,
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+          AND ppr_future.rn=1
     ),
 
       updateEventOfferDtlForPriceOnly AS (
@@ -446,7 +448,7 @@ END,
         LEFT JOIN "futurePpr_PO" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
+            
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"
@@ -614,7 +616,9 @@ END,
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+          AND ppr_future.rn=1
     ),
+
 
       updateEventOfferDtlForBXGX AS (
         SELECT
@@ -674,8 +678,7 @@ END,
         LEFT JOIN "futurePpr_BXGX" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
-
+         
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"
            AND config."country" = eh."country"

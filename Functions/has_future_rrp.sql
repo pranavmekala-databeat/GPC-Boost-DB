@@ -1,3 +1,4 @@
+-- FUNCTION: public.has_future_rrp(integer, integer)
 --DROP FUNCTION IF EXISTS public.has_future_rrp(integer,integer);
 
 CREATE OR REPLACE FUNCTION public.has_future_rrp(
