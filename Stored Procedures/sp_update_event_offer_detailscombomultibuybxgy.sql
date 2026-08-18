@@ -151,7 +151,7 @@ BEGIN
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
-          AND future_ppr.rn = 1
+         
     ),
 
       updateEventOfferDtlForCombo  AS (
