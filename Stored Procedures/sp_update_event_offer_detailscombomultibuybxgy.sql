@@ -98,6 +98,30 @@ BEGIN
     RAISE NOTICE '[%] tmp_pivoted_prices_combomultibuybxgy built', clock_timestamp();
 
     -- ------------------------------------------------------------------
+    -- PERF: materialise relevantSkuCompanies ONCE for this run.
+    -- Previously this identical CTE (distinct sku/company for
+    -- OPEN/LOCKED events of the relevant offer types) was recomputed
+    -- 3 times over (inventory, current RRP, future RRP). Build it a
+    -- single time here and index it so all three joins reuse it.
+    -- ------------------------------------------------------------------
+    DROP TABLE IF EXISTS tmp_relevant_sku_companies_combo;
+    CREATE TEMP TABLE tmp_relevant_sku_companies_combo AS
+    SELECT DISTINCT eod."sku", eh."company", eh."country"
+    FROM "tEventOfferDetail" eod
+    INNER JOIN "tEventOffer" eoh
+        ON eod."offerId" = eoh."offerId"
+       AND eod."offerNo" = eoh."offerNumber"
+    INNER JOIN "tEvent" eh
+        ON eh."eventId" = eoh."eventId"
+    WHERE eh."status" IN ('Open', 'Locked')
+      AND eoh."OfferTypeId" IN (3, 5, 4)
+      AND eod."isSkuActive" = TRUE;
+
+    CREATE INDEX ON tmp_relevant_sku_companies_combo ("sku", "company");
+    ANALYZE tmp_relevant_sku_companies_combo;
+    RAISE NOTICE '[%] tmp_relevant_sku_companies_combo built', clock_timestamp();
+
+    -- ------------------------------------------------------------------
     -- PERF: pre-aggregate tInventory by (sku, company) ONCE.
     -- tInventory has many rows per SKU (one per store/location). Joining
     -- it raw causes massive row multiplication in every UPDATE CTE,
@@ -106,28 +130,17 @@ BEGIN
     -- ------------------------------------------------------------------
     DROP TABLE IF EXISTS tmp_inventory_soh_combo;
     CREATE TEMP TABLE tmp_inventory_soh_combo AS
-    WITH "relevantSkuCompanies" AS (
-        SELECT DISTINCT eod."sku", eh."company"
-        FROM "tEventOfferDetail" eod
-        INNER JOIN "tEventOffer" eoh
-            ON eod."offerId" = eoh."offerId"
-           AND eod."offerNo" = eoh."offerNumber"
-        INNER JOIN "tEvent" eh
-            ON eh."eventId" = eoh."eventId"
-        WHERE eh."status" IN ('Open', 'Locked')
-          AND eoh."OfferTypeId" IN (3, 5, 4)
-          AND eod."isSkuActive" = TRUE
-    )
     SELECT
         rc."sku",
         rc."company",
+        rc."country",
         COALESCE(SUM(CASE WHEN UPPER(inv."locationType") = 'STORE' THEN inv."onHand" END), 0) AS "sohStore",
         COALESCE(SUM(CASE WHEN UPPER(inv."locationType") <> 'STORE' THEN inv."onHand" END), 0) AS "sohDc"
-    FROM "relevantSkuCompanies" rc
+    FROM tmp_relevant_sku_companies_combo rc
     LEFT JOIN "tInventory" inv
         ON inv."sku" = rc."sku"
        AND inv."company" IN (rc."company", '12', '52')
-    GROUP BY rc."sku", rc."company";
+    GROUP BY rc."sku", rc."company", rc."country";
 
     CREATE INDEX ON tmp_inventory_soh_combo ("sku", "company");
     ANALYZE tmp_inventory_soh_combo;
@@ -143,22 +156,11 @@ BEGIN
     -- ------------------------------------------------------------------
     DROP TABLE IF EXISTS tmp_current_rrp_combo;
     CREATE TEMP TABLE tmp_current_rrp_combo AS
-    WITH "relevantSkuCompanies" AS (
-        SELECT DISTINCT eod."sku", eh."company"
-        FROM "tEventOfferDetail" eod
-        INNER JOIN "tEventOffer" eoh
-            ON eod."offerId" = eoh."offerId"
-           AND eod."offerNo" = eoh."offerNumber"
-        INNER JOIN "tEvent" eh
-            ON eh."eventId" = eoh."eventId"
-        WHERE eh."status" IN ('Open', 'Locked')
-          AND eoh."OfferTypeId" IN (3, 5, 4)
-          AND eod."isSkuActive" = TRUE
-    ),
-    "rankedCurrentRrp" AS (
+    WITH "rankedCurrentRrp" AS (
         SELECT
             ppr."sku",
             ppr."company",
+            rc."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
             ROW_NUMBER() OVER (
@@ -166,7 +168,7 @@ BEGIN
                 ORDER BY ppr."startDate" DESC
             ) AS rn
         FROM "tPriceProductRules" ppr
-        INNER JOIN "relevantSkuCompanies" rc
+        INNER JOIN tmp_relevant_sku_companies_combo rc
             ON rc."sku" = ppr."sku"
            AND rc."company" = ppr."company"
         WHERE ppr."startDate" <= CURRENT_DATE
@@ -176,6 +178,7 @@ BEGIN
     SELECT
         "sku",
         "company",
+        "country",
         "pricePoint6",
         "pricePoint6IncludingGst"
     FROM "rankedCurrentRrp"
@@ -193,22 +196,11 @@ BEGIN
     -- ------------------------------------------------------------------
     DROP TABLE IF EXISTS tmp_future_rrp_combo;
     CREATE TEMP TABLE tmp_future_rrp_combo AS
-    WITH "relevantSkuCompanies" AS (
-        SELECT DISTINCT eod."sku", eh."company"
-        FROM "tEventOfferDetail" eod
-        INNER JOIN "tEventOffer" eoh
-            ON eod."offerId" = eoh."offerId"
-           AND eod."offerNo" = eoh."offerNumber"
-        INNER JOIN "tEvent" eh
-            ON eh."eventId" = eoh."eventId"
-        WHERE eh."status" IN ('Open', 'Locked')
-          AND eoh."OfferTypeId" IN (3, 5, 4)
-          AND eod."isSkuActive" = TRUE
-    ),
-    "rankedFutureRrp" AS (
+    WITH "rankedFutureRrp" AS (
         SELECT
             ppr."sku",
             ppr."company",
+            rc."country",
             ppr."pricePoint6IncludingGst",
             ppr."startDate",
             ROW_NUMBER() OVER (
@@ -216,7 +208,7 @@ BEGIN
                 ORDER BY ppr."startDate" ASC
             ) AS rn
         FROM "tPriceProductRules" ppr
-        INNER JOIN "relevantSkuCompanies" rc
+        INNER JOIN tmp_relevant_sku_companies_combo rc
             ON rc."sku" = ppr."sku"
            AND rc."company" = ppr."company"
         WHERE ppr."startDate" > CURRENT_DATE
@@ -225,6 +217,7 @@ BEGIN
     SELECT
         "sku",
         "company",
+        "country",
         "pricePoint6IncludingGst",
         "startDate"
     FROM "rankedFutureRrp"
