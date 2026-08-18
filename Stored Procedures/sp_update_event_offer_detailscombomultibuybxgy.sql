@@ -23,29 +23,6 @@ BEGIN
     RETURNING id INTO v_log_id;
 
     -- ------------------------------------------------------------------
-    -- PERF: materialise relevant SKU/company combinations once for the
-    -- shared future-PPR lookup used by Combo, BXGY, and MultiBuy.
-    -- ------------------------------------------------------------------
-    DROP TABLE IF EXISTS tmp_relevant_sku_companies_combomultibuybxgy;
-    CREATE TEMP TABLE tmp_relevant_sku_companies_combomultibuybxgy AS
-    SELECT DISTINCT
-        eod."sku",
-        eh."company"
-    FROM "tEventOfferDetail" eod
-    INNER JOIN "tEventOffer" eoh
-        ON eod."offerId" = eoh."offerId"
-       AND eod."offerNo" = eoh."offerNumber"
-    INNER JOIN "tEvent" eh
-        ON eh."eventId" = eoh."eventId"
-    WHERE eh."status" IN ('Open', 'Locked')
-      AND eoh."OfferTypeId" IN (3, 5, 4)
-      AND eod."isSkuActive" = TRUE;
-
-    CREATE INDEX idx_tmp_relevant_sku_companies_combomultibuybxgy
-        ON tmp_relevant_sku_companies_combomultibuybxgy ("sku", "company");
-    ANALYZE tmp_relevant_sku_companies_combomultibuybxgy;
-
-    -- ------------------------------------------------------------------
     -- PERF: materialise the price-list waterfall ONCE for this run.
     -- Previously every UPDATE recomputed pricelistDetail/pivoted_prices,
     -- each a full window-sort over tPriceListDetail. Build it a single
@@ -156,41 +133,6 @@ BEGIN
     ANALYZE tmp_inventory_soh_combo;
     RAISE NOTICE '[%] tmp_inventory_soh_combo built - starting detail updates', clock_timestamp();
 
-    -- ------------------------------------------------------------------
-    -- PERF: materialise the nearest future active PPR once for all
-    -- relevant SKU/company combinations.
-    -- ------------------------------------------------------------------
-    DROP TABLE IF EXISTS tmp_future_ppr_combomultibuybxgy;
-    CREATE TEMP TABLE tmp_future_ppr_combomultibuybxgy AS
-    SELECT
-        x."sku",
-        x."company",
-        x."pricePoint6IncludingGst",
-        x."startDate"
-    FROM (
-        SELECT
-            ppr."sku",
-            ppr."company",
-            ppr."pricePoint6IncludingGst",
-            ppr."startDate",
-            ROW_NUMBER() OVER (
-                PARTITION BY ppr."sku", ppr."company"
-                ORDER BY ppr."startDate" ASC
-            ) AS rn
-        FROM "tPriceProductRules" ppr
-        INNER JOIN tmp_relevant_sku_companies_combomultibuybxgy rsc
-            ON rsc."sku" = ppr."sku"
-           AND rsc."company" = ppr."company"
-        WHERE ppr."startDate" > CURRENT_DATE
-          AND ppr."isActive" = TRUE
-    ) x
-    WHERE x.rn = 1;
-
-    CREATE INDEX idx_tmp_future_ppr_combomultibuybxgy
-        ON tmp_future_ppr_combomultibuybxgy ("sku", "company");
-    ANALYZE tmp_future_ppr_combomultibuybxgy;
-    RAISE NOTICE '[%] tmp_future_ppr_combomultibuybxgy built - starting detail updates', clock_timestamp();
-
 
 -- ===================================================================================================
 -- UPDATE tEventOfferDetail For Combo
@@ -198,6 +140,7 @@ BEGIN
 
  RAISE NOTICE '[%] START UPDATE tEventOfferDetail | offerType=Combo | offerTypeId=3', clock_timestamp();
  WITH
+
       updateEventOfferDtlForCombo  AS (
         SELECT
             eod."sku",
@@ -218,8 +161,6 @@ BEGIN
             eod."gst" AS gst_value,
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
-            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEdEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost",
             eoh."advertisedPriceGst",
@@ -253,9 +194,6 @@ BEGIN
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
-        LEFT JOIN tmp_future_ppr_combomultibuybxgy future_ppr
-            ON future_ppr."sku" = eod."sku"
-            AND future_ppr."company" = eh."company"
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"
@@ -274,7 +212,6 @@ BEGIN
              AND rag."country" = eh."country"
         WHERE eoh."OfferTypeId" IN (3)
         AND eh."status" IN ('Open', 'Locked')
-        AND eod."isSkuActive" = TRUE
     ),
 
     "baseRrpCalculation_Combo" AS (
@@ -317,22 +254,7 @@ BEGIN
                             END, 2
                         )
                     )
-                END AS base_rrp_price,
-            CASE
-                WHEN d."futurePricePoint6IncludingGst" IS NULL THEN NULL
-                ELSE ROUND(
-                    CASE
-                        WHEN ROUND(d."futurePricePoint6IncludingGst", 2) < 1 THEN CEILING(ROUND(d."futurePricePoint6IncludingGst", 2) * 10) / 10.0
-                        WHEN ROUND(d."futurePricePoint6IncludingGst", 2) < 10 THEN
-                            CASE WHEN ROUND(d."futurePricePoint6IncludingGst", 2) - FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2)) > 0.5
-                                 THEN CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
-                                 ELSE FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))
-                            END
-                        ELSE CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
-                    END,
-                    2
-                )
-            END AS "futureEdPrice"
+                END AS base_rrp_price
         FROM updateEventOfferDtlForCombo d
     ),
 
@@ -346,9 +268,7 @@ BEGIN
             CASE WHEN d."clearance" = 'Y' THEN ROUND(d.base_rrp_price / (1 + COALESCE(d.gst_value, 0)),2)
                  ELSE ROUND((d."advertisedPriceGst") / (1 + COALESCE(d.gst_value, 0)),2)
             END AS new_advertisedPrice,
-            ROUND(d."nationalAvgCost",2) as natAvgCost,
-            d."futureEdPrice" AS "futureEdPrice",
-            d."futureEdEffectiveDate" AS "futureEdEffectiveDate"
+            ROUND(d."nationalAvgCost",2) as natAvgCost
         FROM "baseRrpCalculation_Combo" d
     )
     UPDATE "tEventOfferDetail" e
@@ -357,8 +277,6 @@ BEGIN
         "everydayPrice" = Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2),
         "everydayPriceGst" = c.new_everydayPriceGst,
         "everydayPriceGstSys" = c.new_everydayPriceGst,
-        "futureEdPrice" = c."futureEdPrice",
-        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "advertisedPriceGst" = c.new_advertisedPriceGst,
         "advertisedPrice" = c.new_advertisedPrice,
         "calculatedSaveValue"= Round(c.new_everydayPriceGst-c.new_advertisedPriceGst,2),
@@ -418,6 +336,7 @@ END,
 
  RAISE NOTICE '[%] START UPDATE tEventOfferDetail | offerType=BXGY | offerTypeId=5', clock_timestamp();
  WITH
+
       updateEventOfferDtlForBXGY AS (
         SELECT
             eod."sku",
@@ -438,8 +357,6 @@ END,
             eod."gst" AS gst_value,
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
-            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEdEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost",
             eoh."advertisedPriceGst",
@@ -473,9 +390,6 @@ END,
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
-        LEFT JOIN tmp_future_ppr_combomultibuybxgy future_ppr
-            ON future_ppr."sku" = eod."sku"
-            AND future_ppr."company" = eh."company"
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"
@@ -494,7 +408,6 @@ END,
              AND rag."country" = eh."country"
         WHERE eoh."OfferTypeId" IN (5)
         AND eh."status" IN ('Open', 'Locked')
-        AND eod."isSkuActive" = TRUE
     ),
 
     "baseRrpCalculation_BXGY" AS (
@@ -537,22 +450,7 @@ END,
                             END, 2
                         )
                     )
-                END AS base_rrp_price,
-            CASE
-                WHEN d."futurePricePoint6IncludingGst" IS NULL THEN NULL
-                ELSE ROUND(
-                    CASE
-                        WHEN ROUND(d."futurePricePoint6IncludingGst", 2) < 1 THEN CEILING(ROUND(d."futurePricePoint6IncludingGst", 2) * 10) / 10.0
-                        WHEN ROUND(d."futurePricePoint6IncludingGst", 2) < 10 THEN
-                            CASE WHEN ROUND(d."futurePricePoint6IncludingGst", 2) - FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2)) > 0.5
-                                 THEN CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
-                                 ELSE FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))
-                            END
-                        ELSE CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
-                    END,
-                    2
-                )
-            END AS "futureEdPrice"
+                END AS base_rrp_price
         FROM updateEventOfferDtlForBXGY d
     ),
 
@@ -568,9 +466,7 @@ END,
             WHEN d."offerNo" = 2 THEN 0
             WHEN d."clearance" = 'Y' THEN ROUND(d.base_rrp_price / (1 + COALESCE(d.gst_value, 0)),2)
             ELSE ROUND((d."advertisedPriceGst") / (1 + COALESCE(d.gst_value, 0)),2) END AS new_advertisedPrice,
-            ROUND(d."nationalAvgCost",2) as natAvgCost,
-            d."futureEdPrice" AS "futureEdPrice",
-            d."futureEdEffectiveDate" AS "futureEdEffectiveDate"
+            ROUND(d."nationalAvgCost",2) as natAvgCost
         FROM "baseRrpCalculation_BXGY" d
     )
     UPDATE "tEventOfferDetail" e
@@ -579,8 +475,6 @@ END,
         "everydayPrice" = Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2),
         "everydayPriceGst" = c.new_everydayPriceGst,
         "everydayPriceGstSys" = c.new_everydayPriceGst,
-        "futureEdPrice" = c."futureEdPrice",
-        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "advertisedPriceGst" = c.new_advertisedPriceGst,
         "advertisedPrice" = c.new_advertisedPrice,
         "calculatedSaveValue"= Round(c.new_everydayPriceGst-c.new_advertisedPriceGst,2),
@@ -641,6 +535,7 @@ END,
 
  RAISE NOTICE '[%] START UPDATE tEventOfferDetail | offerType=MultiBuy | offerTypeId=4', clock_timestamp();
  WITH
+
       updateEventOfferDtlForMultiBuy AS (
         SELECT
             eod."sku",
@@ -662,8 +557,6 @@ END,
             eod."gst" AS gst_value,
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
-            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEdEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost",
             eoh."advertisedPriceGst",
@@ -696,9 +589,6 @@ END,
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
-        LEFT JOIN tmp_future_ppr_combomultibuybxgy future_ppr
-            ON future_ppr."sku" = eod."sku"
-            AND future_ppr."company" = eh."company"
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"
@@ -717,7 +607,6 @@ END,
              AND rag."country" = eh."country"
         WHERE eoh."OfferTypeId" IN (4)
         AND eh."status" IN ('Open', 'Locked')
-        AND eod."isSkuActive" = TRUE
     ),
 
     "baseRrpCalculation_MultiBuy" AS (
@@ -760,22 +649,7 @@ END,
                             END, 2
                         )
                     )
-                END AS base_rrp_price,
-            CASE
-                WHEN d."futurePricePoint6IncludingGst" IS NULL THEN NULL
-                ELSE ROUND(
-                    CASE
-                        WHEN ROUND(d."futurePricePoint6IncludingGst", 2) < 1 THEN CEILING(ROUND(d."futurePricePoint6IncludingGst", 2) * 10) / 10.0
-                        WHEN ROUND(d."futurePricePoint6IncludingGst", 2) < 10 THEN
-                            CASE WHEN ROUND(d."futurePricePoint6IncludingGst", 2) - FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2)) > 0.5
-                                 THEN CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
-                                 ELSE FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))
-                            END
-                        ELSE CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
-                    END,
-                    2
-                )
-            END AS "futureEdPrice"
+                END AS base_rrp_price
         FROM updateEventOfferDtlForMultiBuy d
     ),
 
@@ -789,9 +663,7 @@ END,
             CASE WHEN d."clearance" = 'Y' THEN ROUND(d.base_rrp_price / (1 + COALESCE(d.gst_value, 0)),2)
                  ELSE ROUND((d."advertisedPriceGst") / (1 + COALESCE(d.gst_value, 0)),2)
             END AS new_advertisedPrice,
-            ROUND(d."nationalAvgCost",2) as natAvgCost,
-            d."futureEdPrice" AS "futureEdPrice",
-            d."futureEdEffectiveDate" AS "futureEdEffectiveDate"
+            ROUND(d."nationalAvgCost",2) as natAvgCost
         FROM "baseRrpCalculation_MultiBuy" d
     )
     UPDATE "tEventOfferDetail" e
@@ -800,8 +672,6 @@ END,
         "everydayPrice" = Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2),
         "everydayPriceGst" = c.new_everydayPriceGst,
         "everydayPriceGstSys" = c.new_everydayPriceGst,
-        "futureEdPrice" = c."futureEdPrice",
-        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "advertisedPriceGst" = c.new_advertisedPriceGst,
         "advertisedPrice" =c.new_advertisedPrice,
         "calculatedSaveValue"= Round(c.new_everydayPriceGst-c.new_advertisedPriceGst,2),
