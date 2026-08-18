@@ -164,6 +164,8 @@ BEGIN
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+            future_ppr."startDate" AS "futureEdEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost" AS natAvgCost,
             eoh."incrementalPercentage",
@@ -219,6 +221,8 @@ BEGIN
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst",
+            future_ppr."startDate",
             p."vendorCostPerEach", p."nationalAvgCost",
             eoh."incrementalPercentage",
             rag."G0", rag."G1", rag."G2", rag."G3", rag."G4", rag."G5",
@@ -287,7 +291,23 @@ BEGIN
                               END, 2
                           )
                   END
-              END AS base_rrp_price
+              END AS base_rrp_price,
+              CASE
+                  WHEN d."futurePricePoint6IncludingGst" IS NULL THEN NULL
+                  ELSE
+                      ROUND(
+                          CASE
+                              WHEN (ROUND(d."futurePricePoint6IncludingGst", 2)) < 1 THEN
+                                  CEILING((ROUND(d."futurePricePoint6IncludingGst", 2)) * 10) / 10.0
+                              WHEN (ROUND(d."futurePricePoint6IncludingGst", 2)) < 10 THEN
+                                  CASE WHEN ((ROUND(d."futurePricePoint6IncludingGst", 2)) - FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))) > 0.5
+                                       THEN CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
+                                       ELSE FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))
+                                  END
+                              ELSE CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
+                          END, 2
+                      )
+              END AS future_rrp_price
       FROM updateEventOfferDtlForPCTOffRange d
     ),
 
@@ -327,6 +347,8 @@ BEGIN
     ELSE 0
 END,
 "clearanceIndicator" = CASE WHEN c."clearance" IS NULL OR TRIM(c."clearance") = '' THEN 'N' ELSE c."clearance" END,
+        "futureEdPrice" = c.future_rrp_price,
+        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "categoryforecast" = c.categoryFcst ,
         "forecastCost"=Round(ROUND(COALESCE(c."vendorCostPerEach",0),2)*c.categoryFcst,2) ,
         "forecastSales"=Round(c.categoryFcst*ROUND(c.new_advertisedPriceGst,2),2) ,
@@ -589,6 +611,8 @@ WHERE o."offerId" = s."offerId"
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+            future_ppr."startDate" AS "futureEdEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost" ,
             bool_and(p."isActive") AS "isActive",
@@ -651,6 +675,8 @@ WHERE o."offerId" = s."offerId"
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst",
+            future_ppr."startDate",
             p."vendorCostPerEach", p."nationalAvgCost", p."clearance",
             eoh."incrementalPercentage", rag."G0",
             rag."G1",
@@ -723,7 +749,23 @@ WHERE o."offerId" = s."offerId"
                               END, 2
                           )
                   END
-              END AS base_rrp_price
+              END AS base_rrp_price,
+              CASE
+                  WHEN d."futurePricePoint6IncludingGst" IS NULL THEN NULL
+                  ELSE
+                      ROUND(
+                          CASE
+                              WHEN (ROUND(d."futurePricePoint6IncludingGst", 2)) < 1 THEN
+                                  CEILING((ROUND(d."futurePricePoint6IncludingGst", 2)) * 10) / 10.0
+                              WHEN (ROUND(d."futurePricePoint6IncludingGst", 2)) < 10 THEN
+                                  CASE WHEN ((ROUND(d."futurePricePoint6IncludingGst", 2)) - FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))) > 0.5
+                                       THEN CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
+                                       ELSE FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))
+                                  END
+                              ELSE CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
+                          END, 2
+                      )
+              END AS future_rrp_price
       FROM updateEventOfferDtlForSTDRangePrice d
     ),
 
@@ -774,6 +816,8 @@ END,
 
         "extendedAdvertisedPrice" = ROUND(c.calc_units) * COALESCE(c.new_advertisedPriceGst, 0) ,
         "everydayCost" = COALESCE(c.natAvgCost, 0) ,
+        "futureEdPrice" = c.future_rrp_price,
+        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
        "incrementalSales"=Round(Round(c.categoryFcst*ROUND(c.new_advertisedPriceGst,2),2) - (ROUND(c.calc_units)*c.new_everydayPriceGst),2) ,
         "incrementalTrade$" =  ROUND( ROUND((c.new_advertisedPrice - ROUND(COALESCE(c."vendorCostPerEach",0),2)) * c.categoryFcst,2) - ROUND((Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2)-ROUND(COALESCE(c."vendorCostPerEach",0),2) )*ROUND(c.calc_units),2), 2) ,
          "forecastTradeMargin%" = CASE
@@ -1014,6 +1058,8 @@ WHERE o."offerId" = s."offerId"
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+            future_ppr."startDate" AS "futureEdEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost" ,
             bool_and(p."isActive") AS "isActive",
@@ -1076,6 +1122,8 @@ WHERE o."offerId" = s."offerId"
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst",
+            future_ppr."startDate",
             p."vendorCostPerEach", p."nationalAvgCost", p."clearance",
             eoh."incrementalPercentage", rag."G0",
             rag."G1",
@@ -1148,7 +1196,23 @@ WHERE o."offerId" = s."offerId"
                                 END, 2
                             )
                     END
-                END AS base_rrp_price
+                END AS base_rrp_price,
+            CASE
+                WHEN d."futurePricePoint6IncludingGst" IS NULL THEN NULL
+                ELSE
+                    ROUND(
+                        CASE
+                            WHEN (ROUND(d."futurePricePoint6IncludingGst", 2)) < 1 THEN
+                                CEILING((ROUND(d."futurePricePoint6IncludingGst", 2)) * 10) / 10.0
+                            WHEN (ROUND(d."futurePricePoint6IncludingGst", 2)) < 10 THEN
+                                CASE WHEN ((ROUND(d."futurePricePoint6IncludingGst", 2)) - FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))) > 0.5
+                                     THEN CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
+                                     ELSE FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))
+                                END
+                            ELSE CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
+                        END, 2
+                    )
+            END AS future_rrp_price
         FROM updateEventOfferDtlForComboList d
     ),
 
@@ -1198,6 +1262,8 @@ END,
 
         "extendedAdvertisedPrice" = ROUND(c.calc_units) * COALESCE(c.new_advertisedPriceGst, 0) ,
         "everydayCost" = COALESCE(c.natAvgCost, 0) ,
+        "futureEdPrice" = c.future_rrp_price,
+        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "incrementalSales"=Round(Round(c.categoryFcst*ROUND(c.new_advertisedPriceGst,2),2) - (ROUND(c.calc_units)*c.new_everydayPriceGst),2) ,
         "incrementalTrade$" =  ROUND( ROUND((c.new_advertisedPrice - ROUND(COALESCE(c."vendorCostPerEach",0),2)) * c.categoryFcst,2) - ROUND((Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2)-ROUND(COALESCE(c."vendorCostPerEach",0),2) )*ROUND(c.calc_units),2), 2) ,
         "forecastTradeMargin%" = CASE
@@ -1438,6 +1504,8 @@ WHERE o."offerId" = s."offerId"
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+            future_ppr."startDate" AS "futureEdEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost" AS natAvgCost,
             bool_and(p."isActive") AS "isActive",
@@ -1498,6 +1566,8 @@ WHERE o."offerId" = s."offerId"
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst",
+            future_ppr."startDate",
             p."vendorCostPerEach", p."nationalAvgCost", p."clearance",
             eoh."incrementalPercentage",rag."G0",
             rag."G1",
@@ -1570,7 +1640,23 @@ WHERE o."offerId" = s."offerId"
                                 END, 2
                             )
                     END
-                END AS base_rrp_price
+                END AS base_rrp_price,
+            CASE
+                WHEN d."futurePricePoint6IncludingGst" IS NULL THEN NULL
+                ELSE
+                    ROUND(
+                        CASE
+                            WHEN (ROUND(d."futurePricePoint6IncludingGst", 2)) < 1 THEN
+                                CEILING((ROUND(d."futurePricePoint6IncludingGst", 2)) * 10) / 10.0
+                            WHEN (ROUND(d."futurePricePoint6IncludingGst", 2)) < 10 THEN
+                                CASE WHEN ((ROUND(d."futurePricePoint6IncludingGst", 2)) - FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))) > 0.5
+                                     THEN CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
+                                     ELSE FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))
+                                END
+                            ELSE CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
+                        END, 2
+                    )
+            END AS future_rrp_price
         FROM updateEventOfferDtlForMultiBuySKUList d
     ),
 
@@ -1638,6 +1724,8 @@ END,
 
         "extendedAdvertisedPrice" = ROUND(c.calc_units) * COALESCE(c.new_advertisedPriceGst, 0) ,
         "everydayCost" = COALESCE(c.natAvgCost, 0) ,
+        "futureEdPrice" = c.future_rrp_price,
+        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "incrementalSales"=Round(Round(c.categoryFcst*ROUND(c.new_advertisedPriceGst,2),2) - (ROUND(c.calc_units)*c.new_everydayPriceGst),2) ,
         "incrementalTrade$" =  ROUND( ROUND((c.new_advertisedPrice - ROUND(COALESCE(c."vendorCostPerEach",0),2)) * c.categoryFcst,2) - ROUND((Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2)-ROUND(COALESCE(c."vendorCostPerEach",0),2) )*ROUND(c.calc_units),2), 2) ,
         "forecastTradeMargin%" = CASE
@@ -1875,6 +1963,8 @@ END IF;
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+            future_ppr."startDate" AS "futureEdEffectiveDate",
             eod."isCategoryForecastLocked",
             p."vendorCostPerEach",
             p."nationalAvgCost" ,
@@ -1936,6 +2026,8 @@ END IF;
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst",
+            future_ppr."startDate",
             p."vendorCostPerEach", p."nationalAvgCost", p."clearance",
             eoh."incrementalPercentage",rag."G0",
             rag."G1",
@@ -2007,7 +2099,23 @@ END IF;
                                 END, 2
                             )
                     END
-                END AS base_rrp_price
+                END AS base_rrp_price,
+            CASE
+                WHEN d."futurePricePoint6IncludingGst" IS NULL THEN NULL
+                ELSE
+                    ROUND(
+                        CASE
+                            WHEN (ROUND(d."futurePricePoint6IncludingGst", 2)) < 1 THEN
+                                CEILING((ROUND(d."futurePricePoint6IncludingGst", 2)) * 10) / 10.0
+                            WHEN (ROUND(d."futurePricePoint6IncludingGst", 2)) < 10 THEN
+                                CASE WHEN ((ROUND(d."futurePricePoint6IncludingGst", 2)) - FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))) > 0.5
+                                     THEN CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
+                                     ELSE FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))
+                                END
+                            ELSE CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
+                        END, 2
+                    )
+            END AS future_rrp_price
         FROM updateEventOfferDtlForPriceOnlySKUList d
     ),
 
@@ -2053,6 +2161,8 @@ END IF;
 
         "extendedAdvertisedPrice" = ROUND(c.calc_units) * COALESCE(c.new_everydayPriceGst, 0) ,
         "everydayCost" = COALESCE(c.natAvgCost, 0) ,
+        "futureEdPrice" = c.future_rrp_price,
+        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
         "incrementalSales"=Round(Round(c.categoryFcst*ROUND(c.new_everydayPriceGst,2),2) - (ROUND(c.calc_units)*c.new_everydayPriceGst),2) ,
         "incrementalTrade$" =  ROUND( ROUND((c.new_everydayPriceExGst - ROUND(COALESCE(c."vendorCostPerEach",0),2)) * c.categoryFcst,2) - ROUND((Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2)-ROUND(COALESCE(c."vendorCostPerEach",0),2) )*ROUND(c.calc_units),2), 2) ,
         "forecastTradeMargin%" = CASE
