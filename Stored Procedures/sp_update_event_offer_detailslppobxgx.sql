@@ -139,20 +139,15 @@ BEGIN
     WITH
 
     "futurePpr_LP" AS (
-        SELECT future_ppr."sku", future_ppr."company",
-               future_ppr."pricePoint6IncludingGst", future_ppr."startDate"
-        FROM (
-            SELECT ppr_future."sku", ppr_future."company",
-                   ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
-                   ROW_NUMBER() OVER (
-                       PARTITION BY ppr_future."sku", ppr_future."company"
-                       ORDER BY ppr_future."startDate" ASC
-                   ) AS rn
-            FROM "tPriceProductRules" ppr_future
-            WHERE ppr_future."startDate" > CURRENT_DATE
-              AND ppr_future."isActive" = TRUE
-        ) future_ppr
-        WHERE future_ppr.rn = 1
+        SELECT ppr_future."sku", ppr_future."company",
+               ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
+               ROW_NUMBER() OVER (
+                   PARTITION BY ppr_future."sku", ppr_future."company"
+                   ORDER BY ppr_future."startDate" ASC
+               ) AS rn
+        FROM "tPriceProductRules" ppr_future
+        WHERE ppr_future."startDate" > CURRENT_DATE
+          AND ppr_future."isActive" = TRUE
     ),
 
        updateEventOfferDtlForLP AS (
@@ -214,6 +209,7 @@ BEGIN
         LEFT JOIN "futurePpr_LP" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
+            AND future_ppr.rn = 1
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"
@@ -382,20 +378,15 @@ END,
  WITH
 
     "futurePpr_PO" AS (
-        SELECT future_ppr."sku", future_ppr."company",
-               future_ppr."pricePoint6IncludingGst", future_ppr."startDate"
-        FROM (
-            SELECT ppr_future."sku", ppr_future."company",
-                   ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
-                   ROW_NUMBER() OVER (
-                       PARTITION BY ppr_future."sku", ppr_future."company"
-                       ORDER BY ppr_future."startDate" ASC
-                   ) AS rn
-            FROM "tPriceProductRules" ppr_future
-            WHERE ppr_future."startDate" > CURRENT_DATE
-              AND ppr_future."isActive" = TRUE
-        ) future_ppr
-        WHERE future_ppr.rn = 1
+        SELECT ppr_future."sku", ppr_future."company",
+               ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
+               ROW_NUMBER() OVER (
+                   PARTITION BY ppr_future."sku", ppr_future."company"
+                   ORDER BY ppr_future."startDate" ASC
+               ) AS rn
+        FROM "tPriceProductRules" ppr_future
+        WHERE ppr_future."startDate" > CURRENT_DATE
+          AND ppr_future."isActive" = TRUE
     ),
 
       updateEventOfferDtlForPriceOnly AS (
@@ -455,6 +446,7 @@ END,
         LEFT JOIN "futurePpr_PO" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
+            AND future_ppr.rn = 1
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"
@@ -613,20 +605,15 @@ END,
     WITH
 
     "futurePpr_BXGX" AS (
-        SELECT future_ppr."sku", future_ppr."company",
-               future_ppr."pricePoint6IncludingGst", future_ppr."startDate"
-        FROM (
-            SELECT ppr_future."sku", ppr_future."company",
-                   ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
-                   ROW_NUMBER() OVER (
-                       PARTITION BY ppr_future."sku", ppr_future."company"
-                       ORDER BY ppr_future."startDate" ASC
-                   ) AS rn
-            FROM "tPriceProductRules" ppr_future
-            WHERE ppr_future."startDate" > CURRENT_DATE
-              AND ppr_future."isActive" = TRUE
-        ) future_ppr
-        WHERE future_ppr.rn = 1
+        SELECT ppr_future."sku", ppr_future."company",
+               ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
+               ROW_NUMBER() OVER (
+                   PARTITION BY ppr_future."sku", ppr_future."company"
+                   ORDER BY ppr_future."startDate" ASC
+               ) AS rn
+        FROM "tPriceProductRules" ppr_future
+        WHERE ppr_future."startDate" > CURRENT_DATE
+          AND ppr_future."isActive" = TRUE
     ),
 
       updateEventOfferDtlForBXGX AS (
@@ -687,6 +674,7 @@ END,
         LEFT JOIN "futurePpr_BXGX" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
+            AND future_ppr.rn = 1
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"

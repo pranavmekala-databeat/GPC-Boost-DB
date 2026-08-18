@@ -123,6 +123,21 @@ BEGIN
         GROUP BY "sku","country"
     ),
 
+    "future_ppr" AS (
+        SELECT
+            ppr_future."sku",
+            ppr_future."company",
+            ppr_future."pricePoint6IncludingGst",
+            ppr_future."startDate",
+            ROW_NUMBER() OVER (
+                PARTITION BY ppr_future."sku", ppr_future."company"
+                ORDER BY ppr_future."startDate" ASC
+            ) AS rn
+        FROM "tPriceProductRules" ppr_future
+        WHERE ppr_future."startDate" > CURRENT_DATE
+          AND ppr_future."isActive" = TRUE
+    ),
+
     updateEventOfferDtlForPCTOffRange AS (
         SELECT
             eod."sku",
@@ -140,6 +155,8 @@ BEGIN
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+            future_ppr."startDate" AS "futureEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost" AS natAvgCost,
             eoh."incrementalPercentage",
@@ -170,6 +187,10 @@ BEGIN
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
+         LEFT JOIN "future_ppr" future_ppr
+            ON future_ppr."sku" = eod."sku"
+            AND future_ppr."company" = eh."company"
+            AND future_ppr.rn = 1
          LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
          LEFT JOIN "tInventory" inv ON inv."sku" = eod."sku" and inv."company" IN (eh."company",'12','52')
          LEFT JOIN "tSalesY1" s
@@ -189,6 +210,8 @@ BEGIN
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst",
+            future_ppr."startDate",
             p."vendorCostPerEach", p."nationalAvgCost",
             eoh."incrementalPercentage",
             rag."G0", rag."G1", rag."G2", rag."G3", rag."G4", rag."G5",
@@ -288,6 +311,27 @@ BEGIN
         "everydayPrice" = Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2) ,
         "everydayPriceGst" = c.new_everydayPriceGst ,
         "everydayPriceGstSys" = c.new_everydayPriceGst ,
+        "futureEdPrice" = CASE
+            WHEN c."futurePricePoint6IncludingGst" IS NULL THEN NULL
+            ELSE ROUND(
+                CASE
+                    WHEN ROUND(c."futurePricePoint6IncludingGst", 2) < 1
+                    THEN CEILING(
+                        ROUND(c."futurePricePoint6IncludingGst", 2) * 10
+                    ) / 10.0
+                    WHEN ROUND(c."futurePricePoint6IncludingGst", 2) < 10
+                    THEN CASE
+                        WHEN ROUND(c."futurePricePoint6IncludingGst", 2)
+                             - FLOOR(ROUND(c."futurePricePoint6IncludingGst", 2)) > 0.5
+                        THEN CEILING(ROUND(c."futurePricePoint6IncludingGst", 2))
+                        ELSE FLOOR(ROUND(c."futurePricePoint6IncludingGst", 2))
+                    END
+                    ELSE CEILING(ROUND(c."futurePricePoint6IncludingGst", 2))
+                END,
+                2
+            )
+        END,
+        "futureEdEffectiveDate" = c."futureEffectiveDate",
         "advertisedPriceGst"= c.new_advertisedPriceGst ,
         "advertisedPrice"= c.new_advertisedPrice ,
         "gst" = c.gst_value ,
@@ -508,6 +552,21 @@ WHERE o."offerId" = s."offerId"
         GROUP BY "sku","country"
     ),
 
+    "future_ppr" AS (
+        SELECT
+            ppr_future."sku",
+            ppr_future."company",
+            ppr_future."pricePoint6IncludingGst",
+            ppr_future."startDate",
+            ROW_NUMBER() OVER (
+                PARTITION BY ppr_future."sku", ppr_future."company"
+                ORDER BY ppr_future."startDate" ASC
+            ) AS rn
+        FROM "tPriceProductRules" ppr_future
+        WHERE ppr_future."startDate" > CURRENT_DATE
+          AND ppr_future."isActive" = TRUE
+    ),
+
     updateEventOfferDtlForSTDRangePrice AS (
 
         SELECT
@@ -530,6 +589,8 @@ WHERE o."offerId" = s."offerId"
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+            future_ppr."startDate" AS "futureEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost" ,
             bool_and(p."isActive") AS "isActive",
@@ -564,6 +625,10 @@ WHERE o."offerId" = s."offerId"
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
+        LEFT JOIN "future_ppr" future_ppr
+            ON future_ppr."sku" = eod."sku"
+            AND future_ppr."company" = eh."company"
+            AND future_ppr.rn = 1
         LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
         LEFT JOIN "tInventory" inv
             ON inv."sku" = eod."sku"
@@ -586,6 +651,8 @@ WHERE o."offerId" = s."offerId"
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst",
+            future_ppr."startDate",
             p."vendorCostPerEach", p."nationalAvgCost", p."clearance",
             eoh."incrementalPercentage", rag."G0",
             rag."G1",
@@ -683,6 +750,27 @@ WHERE o."offerId" = s."offerId"
         "everydayPrice" = Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2) ,
         "everydayPriceGst" = c.new_everydayPriceGst ,
         "everydayPriceGstSys" = c.new_everydayPriceGst ,
+        "futureEdPrice" = CASE
+            WHEN c."futurePricePoint6IncludingGst" IS NULL THEN NULL
+            ELSE ROUND(
+                CASE
+                    WHEN ROUND(c."futurePricePoint6IncludingGst", 2) < 1
+                    THEN CEILING(
+                        ROUND(c."futurePricePoint6IncludingGst", 2) * 10
+                    ) / 10.0
+                    WHEN ROUND(c."futurePricePoint6IncludingGst", 2) < 10
+                    THEN CASE
+                        WHEN ROUND(c."futurePricePoint6IncludingGst", 2)
+                             - FLOOR(ROUND(c."futurePricePoint6IncludingGst", 2)) > 0.5
+                        THEN CEILING(ROUND(c."futurePricePoint6IncludingGst", 2))
+                        ELSE FLOOR(ROUND(c."futurePricePoint6IncludingGst", 2))
+                    END
+                    ELSE CEILING(ROUND(c."futurePricePoint6IncludingGst", 2))
+                END,
+                2
+            )
+        END,
+        "futureEdEffectiveDate" = c."futureEffectiveDate",
         "advertisedPriceGst" = c.new_advertisedPriceGst ,
         "gst" = c.gst_value ,
         "advertisedPrice" = c.new_advertisedPrice ,
@@ -901,6 +989,18 @@ WHERE o."offerId" = s."offerId"
         GROUP BY "sku","country"
     ),
 
+    "future_ppr" AS (
+        SELECT ppr_future."sku", ppr_future."company",
+               ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
+               ROW_NUMBER() OVER (
+                   PARTITION BY ppr_future."sku", ppr_future."company"
+                   ORDER BY ppr_future."startDate" ASC
+               ) AS rn
+        FROM "tPriceProductRules" ppr_future
+        WHERE ppr_future."startDate" > CURRENT_DATE
+          AND ppr_future."isActive" = TRUE
+    ),
+
     updateEventOfferDtlForComboList AS (
 
         SELECT
@@ -923,6 +1023,8 @@ WHERE o."offerId" = s."offerId"
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+            future_ppr."startDate" AS "futureEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost" ,
             bool_and(p."isActive") AS "isActive",
@@ -957,6 +1059,10 @@ WHERE o."offerId" = s."offerId"
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
+        LEFT JOIN "future_ppr" future_ppr
+            ON future_ppr."sku" = eod."sku"
+            AND future_ppr."company" = eh."company"
+            AND future_ppr.rn = 1
         LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
         LEFT JOIN "tInventory" inv
             ON inv."sku" = eod."sku"
@@ -979,6 +1085,8 @@ WHERE o."offerId" = s."offerId"
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst",
+            future_ppr."startDate",
             p."vendorCostPerEach", p."nationalAvgCost", p."clearance",
             eoh."incrementalPercentage", rag."G0",
             rag."G1",
@@ -1076,6 +1184,27 @@ WHERE o."offerId" = s."offerId"
         "everydayPrice" = Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2) ,
         "everydayPriceGst" = c.new_everydayPriceGst ,
         "everydayPriceGstSys" = c.new_everydayPriceGst ,
+        "futureEdPrice" = CASE
+            WHEN c."futurePricePoint6IncludingGst" IS NULL THEN NULL
+            ELSE ROUND(
+                CASE
+                    WHEN ROUND(c."futurePricePoint6IncludingGst", 2) < 1
+                    THEN CEILING(
+                        ROUND(c."futurePricePoint6IncludingGst", 2) * 10
+                    ) / 10.0
+                    WHEN ROUND(c."futurePricePoint6IncludingGst", 2) < 10
+                    THEN CASE
+                        WHEN ROUND(c."futurePricePoint6IncludingGst", 2)
+                             - FLOOR(ROUND(c."futurePricePoint6IncludingGst", 2)) > 0.5
+                        THEN CEILING(ROUND(c."futurePricePoint6IncludingGst", 2))
+                        ELSE FLOOR(ROUND(c."futurePricePoint6IncludingGst", 2))
+                    END
+                    ELSE CEILING(ROUND(c."futurePricePoint6IncludingGst", 2))
+                END,
+                2
+            )
+        END,
+        "futureEdEffectiveDate" = c."futureEffectiveDate",
         "advertisedPriceGst" = c.new_advertisedPriceGst ,
         "advertisedPrice" = c.new_advertisedPrice ,
         "gst" = c.gst_value ,
@@ -1291,6 +1420,18 @@ WHERE o."offerId" = s."offerId"
         GROUP BY "sku","country"
     ),
 
+    "future_ppr" AS (
+        SELECT ppr_future."sku", ppr_future."company",
+               ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
+               ROW_NUMBER() OVER (
+                   PARTITION BY ppr_future."sku", ppr_future."company"
+                   ORDER BY ppr_future."startDate" ASC
+               ) AS rn
+        FROM "tPriceProductRules" ppr_future
+        WHERE ppr_future."startDate" > CURRENT_DATE
+          AND ppr_future."isActive" = TRUE
+    ),
+
     updateEventOfferDtlForMultiBuySKUList AS (
         SELECT
             eod."sku",
@@ -1315,6 +1456,8 @@ WHERE o."offerId" = s."offerId"
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+            future_ppr."startDate" AS "futureEffectiveDate",
             p."vendorCostPerEach",
             p."nationalAvgCost" AS natAvgCost,
             bool_and(p."isActive") AS "isActive",
@@ -1347,6 +1490,10 @@ WHERE o."offerId" = s."offerId"
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
+        LEFT JOIN "future_ppr" future_ppr
+            ON future_ppr."sku" = eod."sku"
+            AND future_ppr."company" = eh."company"
+            AND future_ppr.rn = 1
         LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
         LEFT JOIN "tInventory" inv
             ON inv."sku" = eod."sku"
@@ -1369,6 +1516,8 @@ WHERE o."offerId" = s."offerId"
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst",
+            future_ppr."startDate",
             p."vendorCostPerEach", p."nationalAvgCost", p."clearance",
             eoh."incrementalPercentage",rag."G0",
             rag."G1",
@@ -1485,6 +1634,27 @@ WHERE o."offerId" = s."offerId"
         "everydayPrice" = Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2) ,
         "everydayPriceGst" = c.new_everydayPriceGst ,
         "everydayPriceGstSys" = c.new_everydayPriceGst ,
+        "futureEdPrice" = CASE
+            WHEN c."futurePricePoint6IncludingGst" IS NULL THEN NULL
+            ELSE ROUND(
+                CASE
+                    WHEN ROUND(c."futurePricePoint6IncludingGst", 2) < 1
+                    THEN CEILING(
+                        ROUND(c."futurePricePoint6IncludingGst", 2) * 10
+                    ) / 10.0
+                    WHEN ROUND(c."futurePricePoint6IncludingGst", 2) < 10
+                    THEN CASE
+                        WHEN ROUND(c."futurePricePoint6IncludingGst", 2)
+                             - FLOOR(ROUND(c."futurePricePoint6IncludingGst", 2)) > 0.5
+                        THEN CEILING(ROUND(c."futurePricePoint6IncludingGst", 2))
+                        ELSE FLOOR(ROUND(c."futurePricePoint6IncludingGst", 2))
+                    END
+                    ELSE CEILING(ROUND(c."futurePricePoint6IncludingGst", 2))
+                END,
+                2
+            )
+        END,
+        "futureEdEffectiveDate" = c."futureEffectiveDate",
         "advertisedPriceGst"= c.new_advertisedPriceGst ,
         "advertisedPrice" = c.new_advertisedPrice ,
         "gst" = c.gst_value ,
@@ -1699,6 +1869,18 @@ END IF;
         GROUP BY "sku","country"
     ),
 
+    "future_ppr" AS (
+        SELECT ppr_future."sku", ppr_future."company",
+               ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
+               ROW_NUMBER() OVER (
+                   PARTITION BY ppr_future."sku", ppr_future."company"
+                   ORDER BY ppr_future."startDate" ASC
+               ) AS rn
+        FROM "tPriceProductRules" ppr_future
+        WHERE ppr_future."startDate" > CURRENT_DATE
+          AND ppr_future."isActive" = TRUE
+    ),
+
     updateEventOfferDtlForPriceOnlySKUList AS (
         SELECT
             eod."sku",
@@ -1720,6 +1902,8 @@ END IF;
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+            future_ppr."startDate" AS "futureEffectiveDate",
             eod."isCategoryForecastLocked",
             p."vendorCostPerEach",
             p."nationalAvgCost" ,
@@ -1753,6 +1937,10 @@ END IF;
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
+        LEFT JOIN "future_ppr" future_ppr
+            ON future_ppr."sku" = eod."sku"
+            AND future_ppr."company" = eh."company"
+            AND future_ppr.rn = 1
         LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
         LEFT JOIN "tInventory" inv
             ON inv."sku" = eod."sku"
@@ -1775,6 +1963,8 @@ END IF;
             eh."country",
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst",
+            future_ppr."startDate",
             p."vendorCostPerEach", p."nationalAvgCost", p."clearance",
             eoh."incrementalPercentage",rag."G0",
             rag."G1",
@@ -1872,6 +2062,27 @@ END IF;
         "advertisedPriceGst" = c.new_everydayPriceGst ,
         "advertisedPrice" = Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2) ,
         "everydayPriceGstSys" = c.new_everydayPriceGst ,
+        "futureEdPrice" = CASE
+            WHEN c."futurePricePoint6IncludingGst" IS NULL THEN NULL
+            ELSE ROUND(
+                CASE
+                    WHEN ROUND(c."futurePricePoint6IncludingGst", 2) < 1
+                    THEN CEILING(
+                        ROUND(c."futurePricePoint6IncludingGst", 2) * 10
+                    ) / 10.0
+                    WHEN ROUND(c."futurePricePoint6IncludingGst", 2) < 10
+                    THEN CASE
+                        WHEN ROUND(c."futurePricePoint6IncludingGst", 2)
+                             - FLOOR(ROUND(c."futurePricePoint6IncludingGst", 2)) > 0.5
+                        THEN CEILING(ROUND(c."futurePricePoint6IncludingGst", 2))
+                        ELSE FLOOR(ROUND(c."futurePricePoint6IncludingGst", 2))
+                    END
+                    ELSE CEILING(ROUND(c."futurePricePoint6IncludingGst", 2))
+                END,
+                2
+            )
+        END,
+        "futureEdEffectiveDate" = c."futureEffectiveDate",
         "calculatedSaveValue"=0,
         "calculatedSavePercentage" = 0,
         "gst" = c.gst_value ,
