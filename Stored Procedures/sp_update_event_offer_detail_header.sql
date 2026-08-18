@@ -1,4 +1,4 @@
--- PROCEDURE: public.sp_update_event_offer_detail_header(integer, integer, integer, numeric, numeric, numeric, numeric, numeric, integer)
+﻿-- PROCEDURE: public.sp_update_event_offer_detail_header(integer, integer, integer, numeric, numeric, numeric, numeric, numeric, integer)
 
 -- DROP PROCEDURE IF EXISTS public.sp_update_event_offer_detail_header(integer, integer, integer, numeric, numeric, numeric, numeric, numeric, integer);
 
@@ -40,6 +40,7 @@ BEGIN
     JOIN "tEvent" eh ON eh."eventId" = eoh."eventId"
     WHERE eoh."offerId" = p_offer_id
       AND eoh."offerNumber" = p_offer_no
+      AND eh."status" IN ('Open', 'Locked')
     LIMIT 1;
 
     ------------------------------------------------------------------
@@ -79,7 +80,12 @@ BEGIN
     -- 2. Update Event Offer Detail (same CTE logic as given)
     -- ======================================================
 
-    WITH "pricelistDetail" AS (
+    WITH "offerSkus" AS (
+        SELECT "sku" FROM "tEventOfferDetail"
+        WHERE "offerId" = p_offer_id AND "offerNo" = p_offer_no
+    ),
+
+    "pricelistDetail" AS (
         SELECT
             pld."sku",
             pld."priceList",
@@ -105,6 +111,7 @@ BEGIN
         WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
           AND pld."isActive"
           AND pld.company = v_company
+          AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
 
     "pivoted_prices" AS (
@@ -121,6 +128,23 @@ BEGIN
         FROM "pricelistDetail"
         WHERE group_rn = 1
         GROUP BY "sku","country"
+    ),
+
+    "future_ppr" AS (
+        SELECT
+            ppr_future."sku",
+            ppr_future."company",
+            ppr_future."pricePoint6IncludingGst",
+            ppr_future."startDate",
+            ROW_NUMBER() OVER (
+                PARTITION BY ppr_future."sku", ppr_future."company"
+                ORDER BY ppr_future."startDate" ASC
+            ) AS rn
+        FROM "tPriceProductRules" ppr_future
+        WHERE ppr_future."startDate" > CURRENT_DATE
+          AND ppr_future."isActive" = TRUE
+          AND ppr_future."company" = v_company
+          AND ppr_future."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
 
     updateEventOfferDtlForPCTOffRange AS (
@@ -170,6 +194,10 @@ BEGIN
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
+         LEFT JOIN "future_ppr" future_ppr
+            ON future_ppr."sku" = eod."sku"
+            AND future_ppr."company" = eh."company"
+            AND future_ppr.rn = 1
          LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
          LEFT JOIN "tInventory" inv ON inv."sku" = eod."sku" and inv."company" IN (eh."company",'12','52')
          LEFT JOIN "tSalesY1" s
@@ -182,6 +210,8 @@ BEGIN
         WHERE eoh."offerId" = p_offer_id
           AND eoh."offerNumber" = p_offer_no
           AND eoh."OfferTypeId" = p_offer_type_id
+          AND eh."status" IN ('Open', 'Locked')
+          AND eod."isSkuActive" = TRUE
         GROUP BY
             eod."sku", eod."offerNo", eod."offerId", eoh."offerType",
             eoh."endDate", eoh."startDate", eh."endDate", eh."startDate",
@@ -367,12 +397,15 @@ END,
     FROM public."tEventOfferDetail" d
     INNER JOIN public."tEventOffer" o
         ON d."offerId" = o."offerId" AND d."offerNo" = o."offerNumber" AND d."eventId" = o."eventId"
+    INNER JOIN public."tEvent" ev
+        ON ev."eventId" = o."eventId"
 
     WHERE  (o."OfferTypeId" IN (6))
       AND d."offerNo" = p_offer_no
       AND d."offerId" = p_offer_id
       AND (d."clearanceIndicator" <> 'Y' OR d."clearanceIndicator" IS NULL)
        AND d."isSkuActive" = TRUE
+      AND ev."status" IN ('Open', 'Locked')
     GROUP BY d."offerId", d."eventId", d."offerNo", d."clearanceIndicator"
 )
 UPDATE public."tEventOffer" AS o
@@ -420,11 +453,14 @@ WHERE o."offerId" = s."offerId"
     FROM public."tEventOfferDetail" d
     INNER JOIN public."tEventOffer" o
         ON d."offerId" = o."offerId" AND d."offerNo" = o."offerNumber" AND d."eventId" = o."eventId"
+    INNER JOIN public."tEvent" ev
+        ON ev."eventId" = o."eventId"
 
     WHERE  (o."OfferTypeId" IN (6))
       AND d."offerNo" = p_offer_no
       AND d."offerId" = p_offer_id
        AND d."isSkuActive" = TRUE
+      AND ev."status" IN ('Open', 'Locked')
     GROUP BY d."offerId", d."eventId", d."offerNo"
 )
 UPDATE public."tEventOffer" AS o
@@ -464,7 +500,12 @@ WHERE o."offerId" = s."offerId"
       AND "offerNumber" = p_offer_no
       AND "OfferTypeId" = p_offer_type_id;
 
-     WITH "pricelistDetail" AS (
+     WITH "offerSkus" AS (
+         SELECT "sku" FROM "tEventOfferDetail"
+         WHERE "offerId" = p_offer_id AND "offerNo" = p_offer_no
+     ),
+
+     "pricelistDetail" AS (
         SELECT
             pld."sku",
             pld."priceList",
@@ -490,6 +531,7 @@ WHERE o."offerId" = s."offerId"
         WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
           AND pld."isActive"
           AND pld.company = v_company
+          AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
 
     "pivoted_prices" AS (
@@ -506,6 +548,23 @@ WHERE o."offerId" = s."offerId"
         FROM "pricelistDetail"
         WHERE group_rn = 1
         GROUP BY "sku","country"
+    ),
+
+    "future_ppr" AS (
+        SELECT
+            ppr_future."sku",
+            ppr_future."company",
+            ppr_future."pricePoint6IncludingGst",
+            ppr_future."startDate",
+            ROW_NUMBER() OVER (
+                PARTITION BY ppr_future."sku", ppr_future."company"
+                ORDER BY ppr_future."startDate" ASC
+            ) AS rn
+        FROM "tPriceProductRules" ppr_future
+        WHERE ppr_future."startDate" > CURRENT_DATE
+          AND ppr_future."isActive" = TRUE
+          AND ppr_future."company" = v_company
+          AND ppr_future."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
 
     updateEventOfferDtlForSTDRangePrice AS (
@@ -564,6 +623,10 @@ WHERE o."offerId" = s."offerId"
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
+        LEFT JOIN "future_ppr" future_ppr
+            ON future_ppr."sku" = eod."sku"
+            AND future_ppr."company" = eh."company"
+            AND future_ppr.rn = 1
         LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
         LEFT JOIN "tInventory" inv
             ON inv."sku" = eod."sku"
@@ -579,6 +642,8 @@ WHERE o."offerId" = s."offerId"
 
       AND eod."offerNo" = p_offer_no
       AND eod."offerId" = p_offer_id
+      AND eh."status" IN ('Open', 'Locked')
+      AND eod."isSkuActive" = TRUE
         GROUP BY
             eod."sku", eod."offerNo", eod."offerId",eoh."offerType",
             eoh."offerId", eoh."endDate", eoh."startDate", eh."endDate", eh."startDate",
@@ -774,11 +839,14 @@ WITH EventOfferDtlSummaryForStdRangePrice AS (
     FROM public."tEventOfferDetail" d
     INNER JOIN public."tEventOffer" o
         ON d."offerId" = o."offerId" AND d."offerNo" = o."offerNumber" AND d."eventId" = o."eventId"
+    INNER JOIN public."tEvent" ev
+        ON ev."eventId" = o."eventId"
 
     WHERE  (o."OfferTypeId" IN (14))
       AND d."offerNo" = p_offer_no
       AND d."offerId" = p_offer_id
        AND d."isSkuActive" = TRUE
+      AND ev."status" IN ('Open', 'Locked')
     GROUP BY d."offerId", d."eventId",   d."offerNo"
 )
 UPDATE public."tEventOffer" AS o
@@ -823,12 +891,15 @@ WHERE o."offerId" = s."offerId"
     FROM public."tEventOfferDetail" d
     INNER JOIN public."tEventOffer" o
         ON d."offerId" = o."offerId" AND d."offerNo" = o."offerNumber" AND d."eventId" = o."eventId"
+    INNER JOIN public."tEvent" ev
+        ON ev."eventId" = o."eventId"
 
     WHERE  (o."OfferTypeId" IN (14))
       AND d."offerNo" = p_offer_no
       AND d."offerId" = p_offer_id
       AND (d."clearanceIndicator" <> 'Y' OR d."clearanceIndicator" IS NULL)
        AND d."isSkuActive" = TRUE
+      AND ev."status" IN ('Open', 'Locked')
     GROUP BY d."offerId", d."eventId",  d."clearanceIndicator", d."offerNo"
 )
 UPDATE public."tEventOffer" AS o
@@ -857,7 +928,12 @@ WHERE o."offerId" = s."offerId"
       AND "offerNumber" = p_offer_no
       AND "OfferTypeId" = p_offer_type_id;
 
-     WITH "pricelistDetail" AS (
+     WITH "offerSkus" AS (
+         SELECT "sku" FROM "tEventOfferDetail"
+         WHERE "offerId" = p_offer_id AND "offerNo" = p_offer_no
+     ),
+
+     "pricelistDetail" AS (
         SELECT
             pld."sku",
             pld."priceList",
@@ -883,6 +959,7 @@ WHERE o."offerId" = s."offerId"
         WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
           AND pld."isActive"
           AND pld.company = v_company
+          AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
 
     "pivoted_prices" AS (
@@ -899,6 +976,20 @@ WHERE o."offerId" = s."offerId"
         FROM "pricelistDetail"
         WHERE group_rn = 1
         GROUP BY "sku","country"
+    ),
+
+    "future_ppr" AS (
+        SELECT ppr_future."sku", ppr_future."company",
+               ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
+               ROW_NUMBER() OVER (
+                   PARTITION BY ppr_future."sku", ppr_future."company"
+                   ORDER BY ppr_future."startDate" ASC
+               ) AS rn
+        FROM "tPriceProductRules" ppr_future
+        WHERE ppr_future."startDate" > CURRENT_DATE
+          AND ppr_future."isActive" = TRUE
+          AND ppr_future."company" = v_company
+          AND ppr_future."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
 
     updateEventOfferDtlForComboList AS (
@@ -957,6 +1048,10 @@ WHERE o."offerId" = s."offerId"
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
+        LEFT JOIN "future_ppr" future_ppr
+            ON future_ppr."sku" = eod."sku"
+            AND future_ppr."company" = eh."company"
+            AND future_ppr.rn = 1
         LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
         LEFT JOIN "tInventory" inv
             ON inv."sku" = eod."sku"
@@ -972,6 +1067,8 @@ WHERE o."offerId" = s."offerId"
 
       AND eod."offerNo" = p_offer_no
       AND eod."offerId" = p_offer_id
+      AND eh."status" IN ('Open', 'Locked')
+      AND eod."isSkuActive" = TRUE
         GROUP BY
             eod."sku", eod."offerNo", eod."offerId",eoh."offerType",
             eoh."offerId", eoh."endDate", eoh."startDate", eh."endDate", eh."startDate",
@@ -1162,11 +1259,14 @@ WITH EventOfferDtlSummaryForComboList AS (
     FROM public."tEventOfferDetail" d
     INNER JOIN public."tEventOffer" o
         ON d."offerId" = o."offerId" AND d."offerNo" = o."offerNumber" AND d."eventId" = o."eventId"
+    INNER JOIN public."tEvent" ev
+        ON ev."eventId" = o."eventId"
 
     WHERE  (o."OfferTypeId" IN (25))
       AND d."offerNo" = p_offer_no
       AND d."offerId" = p_offer_id
        AND d."isSkuActive" = TRUE
+      AND ev."status" IN ('Open', 'Locked')
     GROUP BY d."offerId", d."eventId",   d."offerNo"
 )
 UPDATE public."tEventOffer" AS o
@@ -1212,12 +1312,15 @@ WITH EventOfferDtlSummaryForAdvPriceForComboList AS (
     FROM public."tEventOfferDetail" d
     INNER JOIN public."tEventOffer" o
         ON d."offerId" = o."offerId" AND d."offerNo" = o."offerNumber" AND d."eventId" = o."eventId"
+    INNER JOIN public."tEvent" ev
+        ON ev."eventId" = o."eventId"
 
     WHERE  (o."OfferTypeId" IN (25))
       AND d."offerNo" = p_offer_no
       AND (d."clearanceIndicator" <> 'Y' OR d."clearanceIndicator" IS NULL)
       AND d."offerId" = p_offer_id
        AND d."isSkuActive" = TRUE
+      AND ev."status" IN ('Open', 'Locked')
     GROUP BY d."offerId", d."eventId",   d."clearanceIndicator",d."offerNo"
 )
 UPDATE public."tEventOffer" AS o
@@ -1247,7 +1350,12 @@ WHERE o."offerId" = s."offerId"
     WHERE "offerId" = p_offer_id
       AND "offerNumber" = p_offer_no
       AND "OfferTypeId" = p_offer_type_id;
-     WITH "pricelistDetail" AS (
+     WITH "offerSkus" AS (
+         SELECT "sku" FROM "tEventOfferDetail"
+         WHERE "offerId" = p_offer_id AND "offerNo" = p_offer_no
+     ),
+
+     "pricelistDetail" AS (
         SELECT
             pld."sku",
             pld."priceList",
@@ -1273,6 +1381,7 @@ WHERE o."offerId" = s."offerId"
         WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
           AND pld."isActive"
           AND pld.company = v_company
+          AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
 
     "pivoted_prices" AS (
@@ -1289,6 +1398,20 @@ WHERE o."offerId" = s."offerId"
         FROM "pricelistDetail"
         WHERE group_rn = 1
         GROUP BY "sku","country"
+    ),
+
+    "future_ppr" AS (
+        SELECT ppr_future."sku", ppr_future."company",
+               ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
+               ROW_NUMBER() OVER (
+                   PARTITION BY ppr_future."sku", ppr_future."company"
+                   ORDER BY ppr_future."startDate" ASC
+               ) AS rn
+        FROM "tPriceProductRules" ppr_future
+        WHERE ppr_future."startDate" > CURRENT_DATE
+          AND ppr_future."isActive" = TRUE
+          AND ppr_future."company" = v_company
+          AND ppr_future."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
 
     updateEventOfferDtlForMultiBuySKUList AS (
@@ -1347,6 +1470,10 @@ WHERE o."offerId" = s."offerId"
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
+        LEFT JOIN "future_ppr" future_ppr
+            ON future_ppr."sku" = eod."sku"
+            AND future_ppr."company" = eh."company"
+            AND future_ppr.rn = 1
         LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
         LEFT JOIN "tInventory" inv
             ON inv."sku" = eod."sku"
@@ -1362,6 +1489,8 @@ WHERE o."offerId" = s."offerId"
 
       AND eod."offerNo" = p_offer_no
       AND eod."offerId" = p_offer_id
+      AND eh."status" IN ('Open', 'Locked')
+      AND eod."isSkuActive" = TRUE
         GROUP BY
             eod."sku", eod."offerNo", eod."offerId",eoh."offerType",
             eoh."offerId", eoh."endDate", eoh."startDate", eh."endDate", eh."startDate",
@@ -1571,11 +1700,14 @@ END,
     FROM public."tEventOfferDetail" d
     INNER JOIN public."tEventOffer" o
         ON d."offerId" = o."offerId" AND d."offerNo" = o."offerNumber" AND d."eventId" = o."eventId"
+    INNER JOIN public."tEvent" ev
+        ON ev."eventId" = o."eventId"
 
     WHERE  (o."OfferTypeId" IN (15))
       AND d."offerNo" = p_offer_no
       AND d."offerId" = p_offer_id
        AND d."isSkuActive" = TRUE
+      AND ev."status" IN ('Open', 'Locked')
     GROUP BY d."offerId", d."eventId", d."offerNo"
 )
 UPDATE public."tEventOffer" AS o
@@ -1620,12 +1752,15 @@ WHERE o."offerId" = s."offerId"
     FROM public."tEventOfferDetail" d
     INNER JOIN public."tEventOffer" o
         ON d."offerId" = o."offerId" AND d."offerNo" = o."offerNumber" AND d."eventId" = o."eventId"
+    INNER JOIN public."tEvent" ev
+        ON ev."eventId" = o."eventId"
 
     WHERE  (o."OfferTypeId" IN (15))
       AND d."offerNo" = p_offer_no
       AND d."offerId" = p_offer_id
      AND (d."clearanceIndicator" <> 'Y' OR d."clearanceIndicator" IS NULL)
       AND d."isSkuActive" = TRUE
+      AND ev."status" IN ('Open', 'Locked')
     GROUP BY d."offerId", d."eventId", d."clearanceIndicator", d."offerNo"
 )
 UPDATE public."tEventOffer" AS o
@@ -1655,7 +1790,12 @@ END IF;
       AND "offerNumber" = p_offer_no
       AND "OfferTypeId" = p_offer_type_id;
 
-       WITH "pricelistDetail" AS (
+       WITH "offerSkus" AS (
+           SELECT "sku" FROM "tEventOfferDetail"
+           WHERE "offerId" = p_offer_id AND "offerNo" = p_offer_no
+       ),
+
+       "pricelistDetail" AS (
         SELECT
             pld."sku",
             pld."priceList",
@@ -1681,6 +1821,7 @@ END IF;
         WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
           AND pld."isActive"
           AND pld.company = v_company
+          AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
 
     "pivoted_prices" AS (
@@ -1697,6 +1838,20 @@ END IF;
         FROM "pricelistDetail"
         WHERE group_rn = 1
         GROUP BY "sku","country"
+    ),
+
+    "future_ppr" AS (
+        SELECT ppr_future."sku", ppr_future."company",
+               ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
+               ROW_NUMBER() OVER (
+                   PARTITION BY ppr_future."sku", ppr_future."company"
+                   ORDER BY ppr_future."startDate" ASC
+               ) AS rn
+        FROM "tPriceProductRules" ppr_future
+        WHERE ppr_future."startDate" > CURRENT_DATE
+          AND ppr_future."isActive" = TRUE
+          AND ppr_future."company" = v_company
+          AND ppr_future."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
 
     updateEventOfferDtlForPriceOnlySKUList AS (
@@ -1753,6 +1908,10 @@ END IF;
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
+        LEFT JOIN "future_ppr" future_ppr
+            ON future_ppr."sku" = eod."sku"
+            AND future_ppr."company" = eh."company"
+            AND future_ppr.rn = 1
         LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
         LEFT JOIN "tInventory" inv
             ON inv."sku" = eod."sku"
@@ -1768,6 +1927,8 @@ END IF;
 
       AND eod."offerNo" = p_offer_no
       AND eod."offerId" = p_offer_id
+      AND eh."status" IN ('Open', 'Locked')
+      AND eod."isSkuActive" = TRUE
         GROUP BY
             eod."sku", eod."offerNo", eod."offerId",eoh."offerType",
             eoh."offerId", eoh."endDate", eoh."startDate", eh."endDate", eh."startDate",
@@ -1960,12 +2121,15 @@ END IF;
     FROM public."tEventOfferDetail" d
     INNER JOIN public."tEventOffer" o
         ON d."offerId" = o."offerId" AND d."offerNo" = o."offerNumber" AND d."eventId" = o."eventId"
+    INNER JOIN public."tEvent" ev
+        ON ev."eventId" = o."eventId"
 
     WHERE  (o."OfferTypeId" IN (23))
 
       AND d."offerNo" = p_offer_no
       AND d."offerId" = p_offer_id
        AND d."isSkuActive" = TRUE
+      AND ev."status" IN ('Open', 'Locked')
     GROUP BY d."offerId", d."eventId", v_gst, d."offerNo"
 )
 UPDATE public."tEventOffer" AS o

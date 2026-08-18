@@ -98,36 +98,124 @@ BEGIN
     RAISE NOTICE '[%] tmp_pivoted_prices_pctstd built', clock_timestamp();
 
     -- ------------------------------------------------------------------
+    -- PERF: materialise relevantSkuCompanies ONCE for this run.
+    -- Previously this identical CTE was recomputed 3 times over
+    -- (inventory, current RRP, future RRP). Build it a single time
+    -- here and index it so all three joins reuse it.
+    -- ------------------------------------------------------------------
+    DROP TABLE IF EXISTS tmp_relevant_sku_companies_pctstd;
+    CREATE TEMP TABLE tmp_relevant_sku_companies_pctstd AS
+    SELECT DISTINCT eod."sku", eh."company", eh."country"
+    FROM "tEventOfferDetail" eod
+    INNER JOIN "tEventOffer" eoh
+        ON eod."offerId" = eoh."offerId"
+       AND eod."offerNo" = eoh."offerNumber"
+    INNER JOIN "tEvent" eh
+        ON eh."eventId" = eoh."eventId"
+    WHERE eh."status" IN ('Open', 'Locked')
+      AND eoh."OfferTypeId" IN (14, 6)
+      AND eod."isSkuActive" = TRUE;
+
+    CREATE INDEX ON tmp_relevant_sku_companies_pctstd ("sku", "company");
+    ANALYZE tmp_relevant_sku_companies_pctstd;
+    RAISE NOTICE '[%] tmp_relevant_sku_companies_pctstd built', clock_timestamp();
+
+    -- ------------------------------------------------------------------
     -- PERF: pre-aggregate tInventory by (sku, company) ONCE.
     -- ------------------------------------------------------------------
     DROP TABLE IF EXISTS tmp_inventory_soh_pctstd;
     CREATE TEMP TABLE tmp_inventory_soh_pctstd AS
-    WITH "relevantSkuCompanies" AS (
-        SELECT DISTINCT eod."sku", eh."company"
-        FROM "tEventOfferDetail" eod
-        INNER JOIN "tEventOffer" eoh
-            ON eod."offerId" = eoh."offerId"
-           AND eod."offerNo" = eoh."offerNumber"
-        INNER JOIN "tEvent" eh
-            ON eh."eventId" = eoh."eventId"
-        WHERE eh."status" IN ('Open', 'Locked')
-          AND eoh."OfferTypeId" IN (14, 6)
-          AND eod."isSkuActive" = TRUE
-    )
     SELECT
         rc."sku",
         rc."company",
+        rc."country",
         COALESCE(SUM(CASE WHEN UPPER(inv."locationType") = 'STORE' THEN inv."onHand" END), 0) AS "sohStore",
         COALESCE(SUM(CASE WHEN UPPER(inv."locationType") <> 'STORE' THEN inv."onHand" END), 0) AS "sohDc"
-    FROM "relevantSkuCompanies" rc
+    FROM tmp_relevant_sku_companies_pctstd rc
     LEFT JOIN "tInventory" inv
         ON inv."sku" = rc."sku"
        AND inv."company" IN (rc."company", '12', '52')
-    GROUP BY rc."sku", rc."company";
+    GROUP BY rc."sku", rc."company", rc."country";
 
     CREATE INDEX ON tmp_inventory_soh_pctstd ("sku", "company");
     ANALYZE tmp_inventory_soh_pctstd;
     RAISE NOTICE '[%] tmp_inventory_soh_pctstd built - starting detail updates', clock_timestamp();
+
+    -- ------------------------------------------------------------------
+    -- PERF: pre-resolve the CURRENT active tPriceProductRules row per
+    -- (sku, company) ONCE. Previously every UPDATE re-joined
+    -- tPriceProductRules inline for the current RRP lookup. Build it a
+    -- single time here, scoped to SKUs used by OPEN/LOCKED events, then
+    -- index it.
+    -- ------------------------------------------------------------------
+    DROP TABLE IF EXISTS tmp_current_rrp_pctstd;
+    CREATE TEMP TABLE tmp_current_rrp_pctstd AS
+    WITH "currentRrp" AS (
+        SELECT
+            ppr."sku",
+            ppr."company",
+            rc."country",
+            ppr."pricePoint6",
+            ppr."pricePoint6IncludingGst",
+            ROW_NUMBER() OVER (
+                PARTITION BY ppr."sku", ppr."company"
+                ORDER BY ppr."startDate" DESC
+            ) AS rn
+        FROM "tPriceProductRules" ppr
+        INNER JOIN tmp_relevant_sku_companies_pctstd rc
+            ON rc."sku" = ppr."sku" AND rc."company" = ppr."company"
+        WHERE ppr."startDate" <= CURRENT_DATE AND ppr."endDate" >= CURRENT_DATE
+          AND ppr."isActive" = TRUE
+    )
+    SELECT
+        "sku",
+        "company",
+        "country",
+        "pricePoint6",
+        "pricePoint6IncludingGst"
+    FROM "currentRrp"
+    WHERE rn = 1;
+
+    CREATE INDEX ON tmp_current_rrp_pctstd (sku, company);
+    ANALYZE tmp_current_rrp_pctstd;
+    RAISE NOTICE '[%] tmp_current_rrp_pctstd built', clock_timestamp();
+
+    -- ------------------------------------------------------------------
+    -- PERF: pre-resolve the NEAREST FUTURE tPriceProductRules row per
+    -- (sku, company) ONCE, scoped to SKUs used by OPEN/LOCKED events,
+    -- then index it.
+    -- ------------------------------------------------------------------
+    DROP TABLE IF EXISTS tmp_future_rrp_pctstd;
+    CREATE TEMP TABLE tmp_future_rrp_pctstd AS
+    WITH "futureRrp" AS (
+        SELECT
+            ppr."sku",
+            ppr."company",
+            rc."country",
+            ppr."pricePoint6IncludingGst",
+            ppr."startDate",
+            ROW_NUMBER() OVER (
+                PARTITION BY ppr."sku", ppr."company"
+                ORDER BY ppr."startDate" ASC
+            ) AS rn
+        FROM "tPriceProductRules" ppr
+        INNER JOIN tmp_relevant_sku_companies_pctstd rc
+            ON rc."sku" = ppr."sku" AND rc."company" = ppr."company"
+        WHERE ppr."startDate" > CURRENT_DATE
+          AND ppr."isActive" = TRUE
+    )
+    SELECT
+        "sku",
+        "company",
+        "country",
+        "pricePoint6IncludingGst",
+        "startDate"
+    FROM "futureRrp"
+    WHERE rn = 1;
+
+    CREATE INDEX ON tmp_future_rrp_pctstd (sku, company);
+    ANALYZE tmp_future_rrp_pctstd;
+    RAISE NOTICE '[%] tmp_future_rrp_pctstd built', clock_timestamp();
 
 
 -- ===================================================================================================
@@ -175,16 +263,17 @@ WITH
           pp.au_primary,
           pp.au_fallback_036,
           pp.nz_primary,
-          pp.nz_fallback_492
+          pp.nz_fallback_492,
+
+          future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+          future_ppr."startDate" AS "futureEdEffectiveDate"
 
       FROM "tEventOfferDetail" eod
       INNER JOIN "tEventOffer" eoh ON eod."offerId" = eoh."offerId" AND eod."offerNo" = eoh."offerNumber"
       INNER JOIN "tEvent" eh ON eh."eventId" = eoh."eventId"
       INNER JOIN "tProducts" p ON p."sku" = eod."sku" AND p."isActive" = true
-      INNER JOIN "tPriceProductRules" ppr ON ppr."sku" = eod."sku"
-          AND ppr."company" = eh."company"
-          AND ppr."startDate" <= CURRENT_DATE AND ppr."endDate" >= CURRENT_DATE
-          AND ppr."isActive" = TRUE
+      INNER JOIN tmp_current_rrp_pctstd ppr ON ppr."sku" = eod."sku" AND ppr."company" = eh."company"
+      LEFT JOIN tmp_future_rrp_pctstd future_ppr ON future_ppr."sku" = eod."sku" AND future_ppr."company" = eh."company"
       INNER JOIN "tConfig" config ON config."configkey" = eh."channel" AND config."country" = eh."country" AND config."configtype" = 'SalesType'
       LEFT JOIN tmp_pivoted_prices_pctstd pp ON pp."sku" = eod."sku" AND pp."country" = eh."country" AND pp."company" = eh."company"
       LEFT JOIN tmp_inventory_soh_pctstd inv ON inv."sku" = eod."sku" AND inv."company" = eh."company"
@@ -367,7 +456,10 @@ WITH
           pp.au_primary,
           pp.au_fallback_036,
           pp.nz_primary,
-          pp.nz_fallback_492
+          pp.nz_fallback_492,
+
+          future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+          future_ppr."startDate" AS "futureEdEffectiveDate"
 
       FROM "tEventOfferDetail" eod
       INNER JOIN "tEventOffer" eoh
@@ -377,11 +469,12 @@ WITH
           ON eh."eventId" = eoh."eventId"
           INNER JOIN "tProducts" p
           ON p."sku" = eod."sku" and p."isActive"=true
-      INNER JOIN "tPriceProductRules" ppr
+      INNER JOIN tmp_current_rrp_pctstd ppr
           ON ppr."sku" = eod."sku"
   AND ppr."company" = eh."company"
-          and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
-          and ppr."isActive" = TRUE
+      LEFT JOIN tmp_future_rrp_pctstd future_ppr
+          ON future_ppr."sku" = eod."sku"
+         AND future_ppr."company" = eh."company"
 
       INNER JOIN "tConfig" config
           ON config."configkey" = eh."channel"

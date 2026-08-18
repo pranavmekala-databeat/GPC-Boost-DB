@@ -37,6 +37,7 @@ BEGIN
     JOIN "tEvent" eh ON eh."eventId" = eoh."eventId"
     WHERE eoh."offerId" = p_offerid
       AND eoh."offerNumber" = p_offerno
+      AND eh."status" IN ('Open', 'Locked')
     LIMIT 1;
  
     ------------------------------------------------------------------
@@ -61,7 +62,12 @@ BEGIN
     ----------------------------------------------------------------------
     -- STEP 1 -> UPDATE COSTS IN tEventOfferDetail
     ----------------------------------------------------------------------
-    WITH "pricelistDetail" AS (
+    WITH "offerSkus" AS (
+        SELECT "sku" FROM "tEventOfferDetail"
+        WHERE "offerId" = p_offerId AND "offerNo" = p_offerNo
+    ),
+
+    "pricelistDetail" AS (
         SELECT
             pld."sku",
             pld."priceList",
@@ -87,6 +93,7 @@ BEGIN
         WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
           AND pld."isActive"
           AND pld.company = v_company
+          AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
  
     "pivoted_prices" AS (
@@ -104,6 +111,23 @@ BEGIN
         WHERE group_rn = 1
         GROUP BY "sku","country"
     ),
+
+    "future_ppr" AS (
+       SELECT
+        ppr_future."sku",
+        ppr_future."company",
+        ppr_future."pricePoint6IncludingGst",
+        ppr_future."startDate",
+        ROW_NUMBER() OVER (
+            PARTITION BY ppr_future."sku", ppr_future."company"
+            ORDER BY ppr_future."startDate" ASC
+        ) AS rn
+    FROM "tPriceProductRules" ppr_future
+    WHERE ppr_future."startDate" > CURRENT_DATE
+      AND ppr_future."isActive" = TRUE
+      AND ppr_future."company" = v_company
+      AND ppr_future."sku" IN (SELECT "sku" FROM "offerSkus")
+    ),
  
     data AS (
         SELECT
@@ -120,6 +144,8 @@ BEGIN
  
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+            future_ppr."startDate" AS "futureEdEffectiveDate",
  
             p."vendorCostPerEach",
             p."nationalAvgCost",
@@ -152,6 +178,10 @@ BEGIN
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
+        LEFT JOIN "future_ppr" future_ppr
+            ON future_ppr."sku" = d."sku"
+            AND future_ppr."company" = eh."company"
+            AND future_ppr.rn=1
         LEFT JOIN "pivoted_prices" pp ON pp."sku" = d."sku" and pp."country"=eh."country"
         LEFT JOIN "tSalesY1" s
             ON s."sku" = d."sku"
@@ -162,6 +192,8 @@ BEGIN
             and inv."company" in (eh."company",'12','52')
         WHERE d."offerId" = p_offerId
           AND d."offerNo" = p_offerNo
+          AND d."isSkuActive" = TRUE
+          AND eh."status" IN ('Open', 'Locked')
         GROUP BY
             d."sku", d."offerNo", d."offerId",
             eoh."offerId", s."averageMonthlySales",
