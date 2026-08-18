@@ -459,7 +459,7 @@ END,
         LEFT JOIN "futurePpr_MultiBuyList" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
+           
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"
