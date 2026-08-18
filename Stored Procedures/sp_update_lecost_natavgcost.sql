@@ -62,7 +62,12 @@ BEGIN
     ----------------------------------------------------------------------
     -- STEP 1 -> UPDATE COSTS IN tEventOfferDetail
     ----------------------------------------------------------------------
-    WITH "pricelistDetail" AS (
+    WITH "offerSkus" AS (
+        SELECT "sku" FROM "tEventOfferDetail"
+        WHERE "offerId" = p_offerId AND "offerNo" = p_offerNo
+    ),
+
+    "pricelistDetail" AS (
         SELECT
             pld."sku",
             pld."priceList",
@@ -88,6 +93,7 @@ BEGIN
         WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
           AND pld."isActive"
           AND pld.company = v_company
+          AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
  
     "pivoted_prices" AS (
@@ -119,6 +125,8 @@ BEGIN
     FROM "tPriceProductRules" ppr_future
     WHERE ppr_future."startDate" > CURRENT_DATE
       AND ppr_future."isActive" = TRUE
+      AND ppr_future."company" = v_company
+      AND ppr_future."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
  
     data AS (
@@ -194,8 +202,6 @@ BEGIN
             v_channel, v_gst,
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
-            future_ppr."pricePoint6IncludingGst",
-            future_ppr."startDate",
             p."vendorCostPerEach", p."nationalAvgCost",
             p."isActive",
             p."clearance",
@@ -260,43 +266,7 @@ BEGIN
                                 END, 2
                             )
                     END
-                END AS base_rrp_price,
-            CASE
-                WHEN d."futurePricePoint6IncludingGst" IS NULL THEN NULL
-                ELSE ROUND(
-                    CASE
-                        WHEN ROUND(d."futurePricePoint6IncludingGst", 2) < 1
-                        THEN CEILING(
-                            ROUND(d."futurePricePoint6IncludingGst", 2) * 10
-                        ) / 10.0
-
-                        WHEN ROUND(d."futurePricePoint6IncludingGst", 2) < 10
-                        THEN
-                            CASE
-                                WHEN
-                                    ROUND(d."futurePricePoint6IncludingGst", 2)
-                                    -
-                                    FLOOR(
-                                        ROUND(d."futurePricePoint6IncludingGst", 2)
-                                    ) > 0.5
-                                THEN
-                                    CEILING(
-                                        ROUND(d."futurePricePoint6IncludingGst", 2)
-                                    )
-                                ELSE
-                                    FLOOR(
-                                        ROUND(d."futurePricePoint6IncludingGst", 2)
-                                    )
-                            END
-
-                        ELSE
-                            CEILING(
-                                ROUND(d."futurePricePoint6IncludingGst", 2)
-                            )
-                    END,
-                    2
-                )
-            END AS "futureEdPrice"
+                END AS base_rrp_price
         FROM data d
     )
     UPDATE "tEventOfferDetail" e
@@ -308,9 +278,6 @@ BEGIN
         "everydayPriceGst" = ROUND(d.base_rrp_price,2),
  
         "everydayPriceGstSys" = ROUND(d.base_rrp_price,2),
-
-        "futureEdPrice" = d."futureEdPrice",
-        "futureEdEffectiveDate" = d."futureEdEffectiveDate",
  
         "stockOnHandStore" =  d.sohStore ,
         "stockOnHandDC"    = d.sohDc ,

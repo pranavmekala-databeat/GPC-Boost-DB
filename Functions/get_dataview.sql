@@ -15,7 +15,7 @@ CREATE OR REPLACE FUNCTION public.get_dataview(
 	p_sort_catfcst_desc boolean DEFAULT NULL::boolean,
 	p_page_number integer DEFAULT 1,
 	p_page_size integer DEFAULT 100)
-    RETURNS TABLE(sku text, part_number text, brand text, description text, frompriceind boolean, displayind boolean, clearance text, showroom text, advpricegst numeric, edprice numeric, calcsavepercent numeric, calcsavevalue numeric, lecost numeric, natavgcost numeric, catfcst integer, incrfcst integer, fcstcost numeric, fcstsales numeric, fcsttmvalue numeric, fcsttmpercent numeric, edunits numeric, scansupportvalue numeric, scansupportpercent numeric, sohstore integer, sohdc integer, grp0qty integer, grp1qty integer, grp2qty integer, grp3qty integer, grp4qty integer, grp5qty integer, totaltieup integer, tieuppercentfcst numeric, tieupcost numeric, supplierid text, suppliername text, ic2 text, ic3 text, ic4 text, comofferic1 text, incrementaltmdollar numeric, incrementalsalesdollar numeric, edcost numeric, edunittmdollar numeric, advunittmdollar numeric, advsalesdollar numeric, edsalesdollar numeric, totalmultibuyprice numeric, requiredqty integer, advpriceexgst numeric, purchaseqty integer, freeqty integer, iscatfcstlocked boolean, total_count integer, isskuedited boolean, isskuactive boolean, "futureEdPrice" numeric, "futureEdEffectiveDate" date) 
+     RETURNS TABLE(sku text, part_number text, brand text, description text, frompriceind boolean, displayind boolean, clearance text, showroom text, advpricegst numeric, edprice numeric,  futureEdPrice numeric, futureEdEffectiveDate date,calcsavepercent numeric, calcsavevalue numeric, lecost numeric, natavgcost numeric, catfcst integer, incrfcst integer, fcstcost numeric, fcstsales numeric, fcsttmvalue numeric, fcsttmpercent numeric, edunits numeric, scansupportvalue numeric, scansupportpercent numeric, sohstore integer, sohdc integer, grp0qty integer, grp1qty integer, grp2qty integer, grp3qty integer, grp4qty integer, grp5qty integer, totaltieup integer, tieuppercentfcst numeric, tieupcost numeric, supplierid text, suppliername text, ic2 text, ic3 text, ic4 text, comofferic1 text, incrementaltmdollar numeric, incrementalsalesdollar numeric, edcost numeric, edunittmdollar numeric, advunittmdollar numeric, advsalesdollar numeric, edsalesdollar numeric, totalmultibuyprice numeric, requiredqty integer, advpriceexgst numeric, purchaseqty integer, freeqty integer, iscatfcstlocked boolean, total_count integer, isskuedited boolean, isskuactive boolean)
     LANGUAGE 'plpgsql'
     COST 100
     VOLATILE PARALLEL UNSAFE
@@ -115,6 +115,9 @@ WITH filtered AS (
 
         e."advertisedPriceGst",
         e."everydayPriceGst",
+		
+		e."futureEdPrice",
+        e."futureEdEffectiveDate",
         e."advertisedPriceGst" / (1+e."gst") as "advertisedPrice",
 
         e."LatestEffectiveCost",
@@ -151,8 +154,6 @@ WITH filtered AS (
 		eo."spacePurchase",
 		e."purchaseQuantity",
 		e."isSkuEdited",
-        e."futureEdPrice",
-        e."futureEdEffectiveDate",
         COUNT(*) OVER() AS total_count,
         e."isSkuActive"
     FROM "tEventOfferDetail" e
@@ -187,6 +188,8 @@ SELECT
 
     f."advertisedPriceGst"::numeric          AS advpricegst,
     f."everydayPriceGst"::numeric            AS edprice,
+	f."futureEdPrice"                        AS "futureEdPrice",
+	f."futureEdEffectiveDate"                    AS "futureEdEffectiveDate",
 
     ROUND(
         CASE
@@ -290,9 +293,7 @@ ROUND(
     f."isCategoryForecastLocked"              AS iscatfcstlocked,
     f.total_count::int                       AS total_count,
 	f."isSkuEdited" 					     AS isskuedited,
-    f."isSkuActive"                          AS isskuactive,
-    f."futureEdPrice"                        AS "futureEdPrice",
-f."futureEdEffectiveDate"                    AS "futureEdEffectiveDate"
+    f."isSkuActive"                          AS isskuactive
 FROM filtered f
 ' ||CASE WHEN TRIM(v_order) <> '' THEN v_order ELSE 'ORDER BY f.sku' END || ' 
 OFFSET ' || v_offset || '
@@ -305,3 +306,6 @@ LIMIT ' || p_page_size || ';
 
 END;
 $BODY$;
+
+
+

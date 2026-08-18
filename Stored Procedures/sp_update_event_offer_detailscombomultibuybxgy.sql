@@ -133,6 +133,107 @@ BEGIN
     ANALYZE tmp_inventory_soh_combo;
     RAISE NOTICE '[%] tmp_inventory_soh_combo built - starting detail updates', clock_timestamp();
 
+    -- ------------------------------------------------------------------
+    -- PERF: resolve the CURRENT active price rule ONCE for this run.
+    -- Previously every UPDATE re-ran an INNER JOIN "tPriceProductRules" ppr
+    -- filtered by startDate/endDate/isActive inline, three times over.
+    -- Build it a single time here, scoped to the same relevantSkuCompanies
+    -- used for inventory, then index it. Defensive ROW_NUMBER() guards
+    -- against any overlapping active rules for the same sku/company.
+    -- ------------------------------------------------------------------
+    DROP TABLE IF EXISTS tmp_current_rrp_combo;
+    CREATE TEMP TABLE tmp_current_rrp_combo AS
+    WITH "relevantSkuCompanies" AS (
+        SELECT DISTINCT eod."sku", eh."company"
+        FROM "tEventOfferDetail" eod
+        INNER JOIN "tEventOffer" eoh
+            ON eod."offerId" = eoh."offerId"
+           AND eod."offerNo" = eoh."offerNumber"
+        INNER JOIN "tEvent" eh
+            ON eh."eventId" = eoh."eventId"
+        WHERE eh."status" IN ('Open', 'Locked')
+          AND eoh."OfferTypeId" IN (3, 5, 4)
+          AND eod."isSkuActive" = TRUE
+    ),
+    "rankedCurrentRrp" AS (
+        SELECT
+            ppr."sku",
+            ppr."company",
+            ppr."pricePoint6",
+            ppr."pricePoint6IncludingGst",
+            ROW_NUMBER() OVER (
+                PARTITION BY ppr."sku", ppr."company"
+                ORDER BY ppr."startDate" DESC
+            ) AS rn
+        FROM "tPriceProductRules" ppr
+        INNER JOIN "relevantSkuCompanies" rc
+            ON rc."sku" = ppr."sku"
+           AND rc."company" = ppr."company"
+        WHERE ppr."startDate" <= CURRENT_DATE
+          AND ppr."endDate" >= CURRENT_DATE
+          AND ppr."isActive" = TRUE
+    )
+    SELECT
+        "sku",
+        "company",
+        "pricePoint6",
+        "pricePoint6IncludingGst"
+    FROM "rankedCurrentRrp"
+    WHERE rn = 1;
+
+    CREATE INDEX ON tmp_current_rrp_combo (sku, company);
+    ANALYZE tmp_current_rrp_combo;
+    RAISE NOTICE '[%] tmp_current_rrp_combo built', clock_timestamp();
+
+    -- ------------------------------------------------------------------
+    -- PERF: resolve the NEAREST future price rule ONCE for this run.
+    -- Supports surfacing an upcoming RRP change alongside the current
+    -- price without re-querying tPriceProductRules per offer type.
+    -- Scoped to the same relevantSkuCompanies as the current-RRP table.
+    -- ------------------------------------------------------------------
+    DROP TABLE IF EXISTS tmp_future_rrp_combo;
+    CREATE TEMP TABLE tmp_future_rrp_combo AS
+    WITH "relevantSkuCompanies" AS (
+        SELECT DISTINCT eod."sku", eh."company"
+        FROM "tEventOfferDetail" eod
+        INNER JOIN "tEventOffer" eoh
+            ON eod."offerId" = eoh."offerId"
+           AND eod."offerNo" = eoh."offerNumber"
+        INNER JOIN "tEvent" eh
+            ON eh."eventId" = eoh."eventId"
+        WHERE eh."status" IN ('Open', 'Locked')
+          AND eoh."OfferTypeId" IN (3, 5, 4)
+          AND eod."isSkuActive" = TRUE
+    ),
+    "rankedFutureRrp" AS (
+        SELECT
+            ppr."sku",
+            ppr."company",
+            ppr."pricePoint6IncludingGst",
+            ppr."startDate",
+            ROW_NUMBER() OVER (
+                PARTITION BY ppr."sku", ppr."company"
+                ORDER BY ppr."startDate" ASC
+            ) AS rn
+        FROM "tPriceProductRules" ppr
+        INNER JOIN "relevantSkuCompanies" rc
+            ON rc."sku" = ppr."sku"
+           AND rc."company" = ppr."company"
+        WHERE ppr."startDate" > CURRENT_DATE
+          AND ppr."isActive" = TRUE
+    )
+    SELECT
+        "sku",
+        "company",
+        "pricePoint6IncludingGst",
+        "startDate"
+    FROM "rankedFutureRrp"
+    WHERE rn = 1;
+
+    CREATE INDEX ON tmp_future_rrp_combo (sku, company);
+    ANALYZE tmp_future_rrp_combo;
+    RAISE NOTICE '[%] tmp_future_rrp_combo built', clock_timestamp();
+
 
 -- ===================================================================================================
 -- UPDATE tEventOfferDetail For Combo
@@ -179,7 +280,9 @@ BEGIN
             pp.au_primary,
             pp.au_fallback_036,
             pp.nz_primary,
-            pp.nz_fallback_492
+            pp.nz_fallback_492,
+            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+            future_ppr."startDate" AS "futureEdEffectiveDate"
 
         FROM "tEventOfferDetail" eod
         INNER JOIN "tEventOffer" eoh
@@ -189,11 +292,12 @@ BEGIN
             ON eh."eventId" = eoh."eventId"
              INNER JOIN "tProducts" p
             ON p."sku" = eod."sku" and p."isActive"=true
-        INNER JOIN "tPriceProductRules" ppr
+        INNER JOIN tmp_current_rrp_combo ppr
             ON ppr."sku" = eod."sku"
             AND ppr."company" = eh."company"
-            and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
-            and ppr."isActive" = TRUE
+        LEFT JOIN tmp_future_rrp_combo future_ppr
+            ON future_ppr."sku" = eod."sku"
+            AND future_ppr."company" = eh."company"
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"
@@ -375,7 +479,9 @@ END,
             pp.au_primary,
             pp.au_fallback_036,
             pp.nz_primary,
-            pp.nz_fallback_492
+            pp.nz_fallback_492,
+            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+            future_ppr."startDate" AS "futureEdEffectiveDate"
 
         FROM "tEventOfferDetail" eod
         INNER JOIN "tEventOffer" eoh
@@ -385,11 +491,12 @@ END,
             ON eh."eventId" = eoh."eventId"
             INNER JOIN "tProducts" p
             ON p."sku" = eod."sku" and p."isActive"=true
-        INNER JOIN "tPriceProductRules" ppr
+        INNER JOIN tmp_current_rrp_combo ppr
             ON ppr."sku" = eod."sku"
             AND ppr."company" = eh."company"
-            and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
-            and ppr."isActive" = TRUE
+        LEFT JOIN tmp_future_rrp_combo future_ppr
+            ON future_ppr."sku" = eod."sku"
+            AND future_ppr."company" = eh."company"
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"
@@ -574,7 +681,9 @@ END,
             pp.au_primary,
             pp.au_fallback_036,
             pp.nz_primary,
-            pp.nz_fallback_492
+            pp.nz_fallback_492,
+            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+            future_ppr."startDate" AS "futureEdEffectiveDate"
 
         FROM "tEventOfferDetail" eod
         INNER JOIN "tEventOffer" eoh
@@ -584,11 +693,12 @@ END,
             ON eh."eventId" = eoh."eventId"
             INNER JOIN "tProducts" p
             ON p."sku" = eod."sku" and p."isActive"=true
-         INNER JOIN "tPriceProductRules" ppr
+         INNER JOIN tmp_current_rrp_combo ppr
             ON ppr."sku" = eod."sku"
             AND ppr."company" = eh."company"
-            and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
-            and ppr."isActive" = TRUE
+        LEFT JOIN tmp_future_rrp_combo future_ppr
+            ON future_ppr."sku" = eod."sku"
+            AND future_ppr."company" = eh."company"
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"

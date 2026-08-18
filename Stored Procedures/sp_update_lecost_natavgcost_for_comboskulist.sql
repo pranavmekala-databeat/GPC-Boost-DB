@@ -57,7 +57,12 @@ BEGIN
     ----------------------------------------------------------------------
     -- STEP 1 -> UPDATE COSTS IN tEventOfferDetail
     ----------------------------------------------------------------------
-    WITH "pricelistDetail" AS (
+    WITH "offerSkus" AS (
+        SELECT "sku" FROM "tEventOfferDetail"
+        WHERE "offerId" = p_offerId
+    ),
+
+    "pricelistDetail" AS (
         SELECT
             pld."sku",
             pld."priceList",
@@ -83,6 +88,7 @@ BEGIN
         WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
           AND pld."isActive"
           AND pld.company = v_company
+          AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
 
     "pivoted_prices" AS (
@@ -101,7 +107,7 @@ BEGIN
         GROUP BY "sku","country"                              -- added country
     ),
 
-    "future_ppr" AS (
+    "futurePpr" AS (
         SELECT
             ppr_future."sku",
             ppr_future."company",
@@ -114,6 +120,8 @@ BEGIN
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+          AND ppr_future."company" = v_company
+          AND ppr_future."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
  
     data AS (
@@ -131,8 +139,6 @@ BEGIN
  
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
-            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEdEffectiveDate",
  
             p."vendorCostPerEach",
             p."nationalAvgCost",
@@ -165,11 +171,10 @@ BEGIN
             AND ppr."company" = eh."company"
             and ppr."startDate"<=CURRENT_DATE and  ppr."endDate">=CURRENT_DATE
             and ppr."isActive" = TRUE
-        LEFT JOIN "future_ppr" future_ppr
+        LEFT JOIN "futurePpr" future_ppr
             ON future_ppr."sku" = d."sku"
             AND future_ppr."company" = eh."company"
             AND future_ppr.rn = 1
-       
         LEFT JOIN "pivoted_prices" pp
             ON pp."sku" = d."sku" AND pp."country" = eh."country"   -- added country match
         LEFT JOIN "tSalesY1" s
@@ -190,8 +195,6 @@ BEGIN
             v_channel, v_gst,
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
-            future_ppr."pricePoint6IncludingGst",
-            future_ppr."startDate",
             p."vendorCostPerEach", p."nationalAvgCost",
             p."isActive",
             p."clearance",
@@ -256,23 +259,7 @@ BEGIN
                                 END, 2
                             )
                     END
-                END AS base_rrp_price,
-            CASE
-                WHEN d."futurePricePoint6IncludingGst" IS NULL THEN NULL
-                ELSE
-                    ROUND(
-                        CASE
-                            WHEN (ROUND(d."futurePricePoint6IncludingGst", 2)) < 1 THEN
-                                CEILING((ROUND(d."futurePricePoint6IncludingGst", 2)) * 10) / 10.0
-                            WHEN (ROUND(d."futurePricePoint6IncludingGst", 2)) < 10 THEN
-                                CASE WHEN ((ROUND(d."futurePricePoint6IncludingGst", 2)) - FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))) > 0.5
-                                     THEN CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
-                                     ELSE FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))
-                                END
-                            ELSE CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
-                        END, 2
-                    )
-            END AS "futureEdPrice"
+                END AS base_rrp_price
         FROM data d
     )
     UPDATE "tEventOfferDetail" e
@@ -284,9 +271,6 @@ BEGIN
         "everydayPriceGst" = ROUND(d.base_rrp_price,2),
  
         "everydayPriceGstSys" = ROUND(d.base_rrp_price,2),
-
-        "futureEdPrice" = d."futureEdPrice",
-        "futureEdEffectiveDate" = d."futureEdEffectiveDate",
  
         "stockOnHandStore" =  d.sohStore ,
         "stockOnHandDC"    = d.sohDc ,
