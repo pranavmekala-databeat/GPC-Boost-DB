@@ -154,6 +154,8 @@ WITH filtered AS (
 		eo."spacePurchase",
 		e."purchaseQuantity",
 		e."isSkuEdited",
+        e."futureEdPrice",
+        e."futureEdEffectiveDate",
         COUNT(*) OVER() AS total_count,
         e."isSkuActive"
     FROM "tEventOfferDetail" e
@@ -293,7 +295,9 @@ ROUND(
     f."isCategoryForecastLocked"              AS iscatfcstlocked,
     f.total_count::int                       AS total_count,
 	f."isSkuEdited" 					     AS isskuedited,
-    f."isSkuActive"                          AS isskuactive
+    f."isSkuActive"                          AS isskuactive,
+    f."futureEdPrice"                        AS "futureEdPrice",
+f."futureEdEffectiveDate"                    AS "futureEdEffectiveDate"
 FROM filtered f
 ' ||CASE WHEN TRIM(v_order) <> '' THEN v_order ELSE 'ORDER BY f.sku' END || ' 
 OFFSET ' || v_offset || '
