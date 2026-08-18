@@ -202,6 +202,8 @@ BEGIN
             v_channel, v_gst,
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst",
+            future_ppr."startDate",
             p."vendorCostPerEach", p."nationalAvgCost",
             p."isActive",
             p."clearance",
