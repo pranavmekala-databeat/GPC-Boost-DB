@@ -395,6 +395,7 @@ END,
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+	      AND ppr_future.rn=1
     ),
 
       updateEventOfferDtlForMultiBuySKUList AS (
@@ -636,6 +637,7 @@ END,
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
+	      AND ppr_future.rn=1
     ),
 
       updateEventOfferDtlForPriceOnlySKUList AS (
@@ -699,7 +701,7 @@ END,
         LEFT JOIN "futurePpr_PriceOnlyList" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
+            
 
         INNER JOIN "tConfig" config
             ON config."configkey" = eh."channel"
