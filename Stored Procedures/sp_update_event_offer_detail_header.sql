@@ -40,7 +40,7 @@ BEGIN
     JOIN "tEvent" eh ON eh."eventId" = eoh."eventId"
     WHERE eoh."offerId" = p_offer_id
       AND eoh."offerNumber" = p_offer_no
-      AND eh."status" IN ('Open', 'Locked')\
+      AND eh."status" IN ('Open', 'Locked')
     LIMIT 1;
 
     ------------------------------------------------------------------
