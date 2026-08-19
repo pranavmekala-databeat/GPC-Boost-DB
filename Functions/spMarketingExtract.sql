@@ -4,7 +4,7 @@
 
 CREATE OR REPLACE FUNCTION public."spMarketingExtract"(
 	p_event_id integer)
-    RETURNS TABLE("EVENTID" integer, "EVENTDESC" character varying, "COUNTRY" character varying, "CO" character varying, "CHANNEL" character varying, "EVENTTYPE" character varying, "STARTDTE" date, "ENDDTE" date, "PAGE" integer, "PAGEPOSN" integer, "COMOFFERTYPE" character varying, "COMOFFERIC1" character varying, "COMCATMAN" character varying, "OFFERNO" integer, "OFFERNAME" character varying, "PARTNO" character varying, "DESC" character varying, "WEBPARTDESC" character varying, "BRAND" character varying, "IC4" character varying, "SKU" character varying, "SUBSKU" character varying, "FROMPRCIND" text, "COMOFFERHDRCOPY" text, "COMOFFERCOPY" character varying, "IMAGEREF" character varying, "COPYREF" character varying, "TRANSTASMAN" text, "FLNEW" text, "FLHOTPRICE" text, "FLBONUS" text, "FLEXCLUSIVE" text, "FLINTROPRICE" text, "FLLTDSTRSTK" text, "FLNOTAVAILALLSTR" text, "FLNOTAVAILONLINE" text, "FLONLINEONLY" text, "FLORDERYOURSTODAY" text, "FLPRICEDOWN" text, "FLRAINCHECK" text, "FLWAEXCL" text, "FLWARRANTY" text, "FLLIMITQTY" integer, "HYBTGTGRP" text, "FLLOWESTPRICE" text, "FLLMTTIMEONLY" text, "FLWHILESTOCKLAST" text, "FLSTORESTOCKONLY" text, "FLREWARDS" text, "FLCLEARANCE" text, "OFFERLINES" bigint, "OFFERQTY" integer, "FREEQTY" integer, "SAVEPCT" numeric, "TOTADVPRICEGST" numeric, "TOTALEDPRICEGST" numeric, "TOTSAVEPCT" numeric, "TOTSAVEVAL" numeric, "ADVPRICEGST" numeric, "EDPRICEGST" numeric, "CALCSAVEPCT" numeric, "CALCSAVEVAL" numeric, "inventoryReviewIndicator" text, "OTHER" character varying) 
+    RETURNS TABLE("EVENTID" integer, "EVENTDESC" character varying, "COUNTRY" character varying, "CO" character varying, "CHANNEL" character varying, "EVENTTYPE" character varying, "STARTDTE" date, "ENDDTE" date, "PAGE" integer, "PAGEPOSN" integer, "COMOFFERTYPE" character varying, "COMOFFERIC1" character varying, "COMCATMAN" character varying, "OFFERNO" integer, "OFFERNAME" character varying, "PARTNO" character varying, "DESC" character varying, "WEBPARTDESC" character varying, "BRAND" character varying, "IC4" character varying, "SKU" character varying, "SUBSKU" character varying, "FROMPRCIND" text, "COMOFFERHDRCOPY" text, "COMOFFERCOPY" character varying, "IMAGEREF" character varying, "COPYREF" character varying, "TRANSTASMAN" text, "FLNEW" text, "FLHOTPRICE" text, "FLBONUS" text, "FLEXCLUSIVE" text, "FLINTROPRICE" text, "FLLTDSTRSTK" text, "FLNOTAVAILALLSTR" text, "FLNOTAVAILONLINE" text, "FLONLINEONLY" text, "FLORDERYOURSTODAY" text, "FLPRICEDOWN" text, "FLRAINCHECK" text, "FLWAEXCL" text, "FLWARRANTY" text, "FLLIMITQTY" integer, "HYBTGTGRP" text, "FLLOWESTPRICE" text, "FLLMTTIMEONLY" text, "FLWHILESTOCKLAST" text, "FLSTORESTOCKONLY" text, "FLREWARDS" text, "FLCLEARANCE" text, "OFFERLINES" bigint, "OFFERQTY" integer, "FREEQTY" integer, "SAVEPCT" numeric, "TOTADVPRICEGST" numeric, "TOTALEDPRICEGST" numeric, "TOTSAVEPCT" numeric, "TOTSAVEVAL" numeric, "ADVPRICEGST" numeric, "EDPRICEGST" numeric, "CALCSAVEPCT" numeric, "CALCSAVEVAL" numeric, "inventoryReviewIndicator" text, "OTHER" character varying,"PURCHASEQTY" integer, "PURCHASEPRICE" numeric) 
     LANGUAGE 'sql'
     COST 100
     STABLE PARALLEL SAFE 
@@ -129,7 +129,10 @@ AS $BODY$
                   WHEN eod."inventoryReviewIndicator" = true THEN 'Y'
                   ELSE NULL
               END AS "inventoryReviewIndicator",
-              eo."otherDetails" AS "OTHER"
+              eo."otherDetails" AS "OTHER",
+			  eod."purchaseQuantity" as "PURCHASEQTY",
+			  eod."purchasePrice" as "PURCHASEPRICE"
+
           FROM public."tEvent" e
           INNER JOIN relevant_offers eo
               ON e."eventId" = eo."eventId"
@@ -225,7 +228,9 @@ AS $BODY$
           bq."CALCSAVEPCT",
           bq."CALCSAVEVAL",
           bq."inventoryReviewIndicator",
-          bq."OTHER"
+          bq."OTHER",
+		  bq."PURCHASEQTY",
+		  bq."PURCHASEPRICE"
       FROM base_query bq
       ORDER BY bq."PAGE", bq."PAGEPOSN", bq."OFFERNO";
   
