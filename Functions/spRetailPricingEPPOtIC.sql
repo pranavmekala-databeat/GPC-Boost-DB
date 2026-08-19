@@ -10,7 +10,7 @@ CREATE OR REPLACE FUNCTION public."spRetailPricingEPPOtIC"(
 	p_comofferic character varying DEFAULT NULL::character varying,
 	p_criteria character varying DEFAULT NULL::character varying,
 	p_fieldlist character varying DEFAULT '*'::character varying)
-    RETURNS TABLE("EVENTDESC" character varying, "PAGE" integer, "PAGEPOSN" integer, "COMOFFERTYPE" character varying, "COMOFFERIC1" character varying, "PARTNO" character varying, "DESC" character varying, "BRAND" character varying, "SKU" character varying, "EDPRICEGST" numeric, "STARTDTE" date, "ENDDTE" date, "COMCATMAN" character varying, "OFFERNAME" character varying, "IC4" character varying, "OFFERTYPE" character varying, "SAVEPCT" numeric, "ADVPRICEGST" numeric, "CALCSAVEPCT" numeric, "CALCSAVEVAL" numeric, "TOTEDPRICEGST" numeric, "TOTADVPRICEGST" numeric, "TOTCALCSAVEVAL" numeric, "Ignition" numeric, "PRCONLY" boolean) 
+    RETURNS TABLE("EVENTDESC" character varying, "PAGE" integer, "PAGEPOSN" integer, "COMOFFERTYPE" character varying, "COMOFFERIC1" character varying, "PARTNO" character varying, "DESC" character varying, "BRAND" character varying, "SKU" character varying, "EDPRICEGST" numeric, "STARTDTE" date, "ENDDTE" date, "COMCATMAN" character varying, "OFFERNAME" character varying, "IC4" character varying, "OFFERTYPE" character varying, "SAVEPCT" numeric, "ADVPRICEGST" numeric, "CALCSAVEPCT" numeric, "CALCSAVEVAL" numeric, "TOTEDPRICEGST" numeric, "TOTADVPRICEGST" numeric, "TOTCALCSAVEVAL" numeric, "Ignition" numeric, "PRCONLY" boolean,"PURCHASEQTY" integer,"PURCHASEPRICE" numeric) 
     LANGUAGE 'plpgsql'
     COST 100
     VOLATILE PARALLEL UNSAFE
@@ -127,7 +127,9 @@ BEGIN
                 ELSE 0::NUMERIC
             END AS "TOTCALCSAVEVAL",
             0::NUMERIC(19,5) AS "Ignition",
-            eod."priceOnly" AS "PRCONLY"
+            eod."priceOnly" AS "PRCONLY",
+			eod."purchaseQuantity" AS "PURCHASEQTY",
+			eod."purchasePrice" AS "PURCHASEPRICE"
         FROM "tEvent" eh
         INNER JOIN "tEventOffer" eo ON eh."eventId" = eo."eventId" AND eo."isOfferActive" = TRUE
         INNER JOIN "tEventOfferDetail" eod
