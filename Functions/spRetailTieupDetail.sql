@@ -4,7 +4,7 @@
 
 CREATE OR REPLACE FUNCTION public."spRetailTieupDetail"(
 	p_event_id integer)
-    RETURNS TABLE("eventDescription" character varying, page integer, "pagePosition" integer, "comOfferCategory1" character varying, "offerNo" integer, "commercialOfferType" character varying, "offerId" integer, sku character varying, brand character varying, "partNo" character varying, description character varying, "tieUp" text, "everydayPriceGst" numeric, "advertisedPriceGst" numeric, "allocationGroup" character varying, "allocationType" character varying, "group0Quantity" integer, "group1Quantity" integer, "group2Quantity" integer, "group3Quantity" integer, "group4Quantity" integer, "group5Quantity" integer, "totalTieUp" numeric, "tieUpPercentForecast" numeric, "tieUpCost" numeric, "categoryForecast" numeric, "incrementalForecast" numeric, "incrementalForecastPercent" numeric, "purchaseQuantity" integer, "forecastCost" numeric, "forecastSales" numeric, ignition boolean, "COUNTRY" character varying) 
+    RETURNS TABLE("eventDescription" character varying, page integer, "pagePosition" integer, "comOfferCategory1" character varying, "offerNo" integer, "commercialOfferType" character varying, "offerId" integer, sku character varying, brand character varying, "partNo" character varying, description character varying, "tieUp" text, "everydayPriceGst" numeric, "advertisedPriceGst" numeric, "allocationGroup" character varying, "allocationType" character varying, "group0Quantity" integer, "group1Quantity" integer, "group2Quantity" integer, "group3Quantity" integer, "group4Quantity" integer, "group5Quantity" integer, "totalTieUp" numeric, "tieUpPercentForecast" numeric, "tieUpCost" numeric, "categoryForecast" numeric, "incrementalForecast" numeric, "incrementalForecastPercent" numeric, "purchaseQuantity" integer, "forecastCost" numeric, "forecastSales" numeric, ignition boolean, "COUNTRY" character varying,"PURCHASEPRICE" numeric) 
     LANGUAGE 'plpgsql'
     COST 100
     VOLATILE PARALLEL UNSAFE
@@ -59,7 +59,8 @@ END AS "commercialOfferType",
  Round(eod."forecastCost",2), 
  Round(eod."forecastSales",2),
  eo."isIntroPrice" AS ignition,
- eh."country" AS "COUNTRY"
+ eh."country" AS "COUNTRY",
+ eod."purchasePrice" AS "PURCHASEPRICE"
  FROM public."tEvent" eh 
  INNER JOIN public."tEventOffer" eo 
  ON eh."eventId" = eo."eventId" 
