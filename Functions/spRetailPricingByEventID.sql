@@ -4,7 +4,7 @@
 
 CREATE OR REPLACE FUNCTION public."spRetailPricingByEventID"(
 	p_eventid integer)
-    RETURNS TABLE("EVENTDESC" character varying, "PAGE" integer, "PAGEPOSN" integer, "COMOFFERTYPE" character varying, "COMOFFERIC1" character varying, "PARTNO" character varying, "DESC" character varying, "BRAND" character varying, "SKU" character varying, "EDPRICEGST" numeric, "STARTDTE" date, "ENDDTE" date, "COMCATMAN" character varying, "OFFERNAME" character varying, "IC4" character varying, "OFFERTYPE" character varying, "SAVEPCT" numeric, "ADVPRICEGST" numeric, "Ignition" text, "TOTEDPRICEGST" numeric, "TOTADVPRICEGST" numeric, "TOTCALCSAVEVAL" numeric, "CALCSAVEPCT" numeric, "PRCONLY" boolean, "$SAVE" numeric, "Image Reference" character varying) 
+    RETURNS TABLE("EVENTDESC" character varying, "PAGE" integer, "PAGEPOSN" integer, "COMOFFERTYPE" character varying, "COMOFFERIC1" character varying, "PARTNO" character varying, "DESC" character varying, "BRAND" character varying, "SKU" character varying, "EDPRICEGST" numeric, "STARTDTE" date, "ENDDTE" date, "COMCATMAN" character varying, "OFFERNAME" character varying, "IC4" character varying, "OFFERTYPE" character varying, "SAVEPCT" numeric, "ADVPRICEGST" numeric, "Ignition" text, "TOTEDPRICEGST" numeric, "TOTADVPRICEGST" numeric, "TOTCALCSAVEVAL" numeric, "CALCSAVEPCT" numeric, "PRCONLY" boolean, "$SAVE" numeric, "Image Reference" character varying,"PURCHASEQTY" integer,"PURCHASEPRICE" numeric) 
     LANGUAGE 'plpgsql'
     COST 100
     VOLATILE PARALLEL UNSAFE
@@ -66,7 +66,9 @@ END AS "COMOFFERTYPE",
             Round(eod."calculatedSavePercentage",2) AS "CALCSAVEPCT",
             eod."priceOnly" AS "PRCONLY",
             Round(eo."saveValue",2) AS "$SAVE",
-			eo."imageReference" as "Image Reference"
+			eo."imageReference" as "Image Reference",
+			eod."purchaseQuantity" as "PURCHASEQTY",
+			eod."purchasePrice" as "PURCHASEPRICE"
         FROM "tEvent" e
         INNER JOIN "tEventOffer" eo
             ON e."eventId" = eo."eventId"
