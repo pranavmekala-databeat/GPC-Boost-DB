@@ -1,6 +1,6 @@
 -- FUNCTION: public.get_products_by_filters(integer, text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], boolean, boolean, boolean, integer, integer, integer, timestamp without time zone, boolean, boolean, boolean, boolean, boolean, boolean, boolean, integer, integer)
 
--- DROP FUNCTION IF EXISTS public.get_products_by_filters(integer, text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], boolean, boolean, boolean, integer, integer, integer, timestamp without time zone, boolean, boolean, boolean, boolean, boolean, boolean, boolean, integer, integer);
+DROP FUNCTION IF EXISTS public.get_products_by_filters(integer, text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], boolean, boolean, boolean, integer, integer, integer, timestamp without time zone, boolean, boolean, boolean, boolean, boolean, boolean, boolean, integer, integer);
 
 CREATE OR REPLACE FUNCTION public.get_products_by_filters(
 	p_event_id integer,
@@ -36,7 +36,7 @@ CREATE OR REPLACE FUNCTION public.get_products_by_filters(
 	p_sort_clearance_desc boolean DEFAULT NULL::boolean,
 	p_page_number integer DEFAULT 1,
 	p_page_size integer DEFAULT 100)
-    RETURNS TABLE(sku text, part_no text, description text, brand text, itemclass4 text, showroomindicator text, clearance text, categorymanager text, itemclass1 text, country text, isnew boolean, isselected boolean, isunselected boolean, isskuactive boolean, total_count integer, event_offer_count integer, new_count integer) 
+    RETURNS TABLE(sku text, part_no text, description text, brand text, itemclass4 text, showroomindicator text, clearance text, categorymanager text, itemclass1 text, country text, isnew boolean, isselected boolean, isunselected boolean, isskuactive boolean, total_count integer, event_offer_count integer, new_count integer, duplicate_count integer, duplicate_skus text) 
     LANGUAGE 'plpgsql'
     COST 100
     VOLATILE PARALLEL UNSAFE
@@ -62,6 +62,8 @@ DECLARE
 	v_new_count_sql TEXT := '';
 	v_offer_skus_subquery TEXT;   -- SKUs that belong to the current offer (edited filter)
 	v_where_new_skus TEXT := ' WHERE UPPER(country) = UPPER((SELECT country FROM "tEvent"  WHERE "eventId" = ' || p_event_id || ')) AND "isActive" = TRUE ';
+	v_duplicate_count INT := 0;
+	v_duplicate_skus TEXT;
 BEGIN
 	   v_searched_at_date_literal := CASE
         WHEN p_searchedAt IS NULL THEN 'NULL'
@@ -237,6 +239,37 @@ BEGIN
                        || ' AND (' || v_isnew_cond || ')';
     -- Execute the new count SQL
     EXECUTE v_new_count_sql INTO v_new_count;
+
+    --------------------------------------------------------
+    -- Duplicate SKU aggregate (independent of product filters and paging)
+    --------------------------------------------------------
+    IF COALESCE(cardinality(p_skus), 0) > 0 AND p_offerTypeId IS NOT NULL THEN
+        SELECT
+            COUNT(DISTINCT d.sku),
+            STRING_AGG(DISTINCT d.sku::TEXT, ',' ORDER BY d.sku::TEXT)
+        INTO v_duplicate_count, v_duplicate_skus
+        FROM "tEventOfferDetail" d
+        INNER JOIN "tEventOffer" o
+            ON d."eventId" = o."eventId"
+           AND d.page = o.page
+           AND d."pagePosition" = o."pagePosition"
+           AND d."offerId" = o."offerId"
+           AND d."offerNo" = o."offerNumber"
+        WHERE d."eventId" = p_event_id
+          AND d.sku = ANY(p_skus)
+          AND d."isSkuActive" = TRUE
+          AND o."offerTypeId" = p_offerTypeId
+          
+          AND CASE
+                WHEN p_offerId = 0 THEN TRUE
+                WHEN p_offerTypeId IN (5, 25) THEN
+                    o."offerId" <> p_offerId
+                    OR (o."offerId" = p_offerId AND o."offerNumber" <> p_offerNo)
+                WHEN p_offerTypeId = 3 THEN o."offerId" <> p_offerId
+                ELSE o."offerId" <> p_offerId
+                     AND o."offerNumber" <> p_offerNo
+              END;
+    END IF;
  
     --------------------------------------------------------
     -- Final SQL with paging
@@ -269,7 +302,9 @@ v_sql := '
     -- 14, 15: COUNTS
     f.total_count::INT,
     '||v_eventOffer_count||'::INT AS event_offer_count,
-	'||v_new_count||'::INT AS new_count
+	'||v_new_count||'::INT AS new_count,
+    '||v_duplicate_count||'::INT AS duplicate_count,
+    '||COALESCE(quote_literal(v_duplicate_skus), 'NULL')||'::TEXT AS duplicate_skus
     FROM filtered f
     LEFT JOIN "tEventOfferDetail" e
            ON 
@@ -311,7 +346,9 @@ ELSE
     -- 14, 15: COUNTS
     f.total_count::INT,
     '||v_eventOffer_count||'::INT AS event_offer_count,
-	'||v_new_count||'::INT AS new_count
+	'||v_new_count||'::INT AS new_count,
+    '||v_duplicate_count||'::INT AS duplicate_count,
+    '||COALESCE(quote_literal(v_duplicate_skus), 'NULL')||'::TEXT AS duplicate_skus
     FROM filtered f
     LEFT JOIN "tEventOfferDetail" e
            ON 
@@ -331,3 +368,7 @@ END IF;
     RETURN QUERY EXECUTE v_sql;
 END;
 $BODY$;
+
+ALTER FUNCTION public.get_products_by_filters(integer, text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], text[], boolean, boolean, boolean, integer, integer, integer, timestamp without time zone, boolean, boolean, boolean, boolean, boolean, boolean, boolean, integer, integer)
+    OWNER TO cdcaudevadmin;
+
