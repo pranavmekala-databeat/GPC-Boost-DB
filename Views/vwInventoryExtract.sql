@@ -85,7 +85,7 @@ CREATE OR REPLACE VIEW public."vwInventoryExtract" AS
                     ELSE 0
                 END AS is_tieup,
             eod."incrementalForecast"::numeric AS incr_fcst_guess,
-            eod."purchasePrice" AS "PURCHASEPRICE"
+            eod."purchasePrice" AS "PURCHPRICE"
            FROM "tEventOffer" eo
              JOIN "tEvent" e ON eo."eventId" = e."eventId"
              JOIN "tEventOfferDetail" eod ON eo."eventId" = eod."eventId" AND eo.page = eod.page AND eo."pagePosition" = eod."pagePosition" AND eo."offerId" = eod."offerId" AND eo."offerNumber" = eod."offerNo"
@@ -140,7 +140,7 @@ CREATE OR REPLACE VIEW public."vwInventoryExtract" AS
                     WHEN b.is_tieup = 0 THEN row_number() OVER (PARTITION BY b."EVENTID", b."PAGE", b."PAGEPOSN", b."OFFERID", b."OFFERNO" ORDER BY (COALESCE(b.incr_fcst_guess, 0::numeric) + COALESCE(b."CATFCST", 0::numeric)) DESC)
                     ELSE NULL::bigint
                 END AS rn_non_tie,
-           b."PURCHASEPRICE"
+            b."PURCHPRICE"
            FROM base b
         )
  SELECT "EVENTID",
@@ -178,7 +178,7 @@ CREATE OR REPLACE VIEW public."vwInventoryExtract" AS
     "PRCONLY",
     "COUNTRY",
     "INCRFCST",
-    "PURCHASEPRICE"
+    "PURCHPRICE"
    FROM ( SELECT r."EVENTID",
             r."PAGE",
             r."PAGEPOSN",
@@ -227,7 +227,7 @@ CREATE OR REPLACE VIEW public."vwInventoryExtract" AS
                     WHEN r.apply_rules = 1 AND r.is_tieup = 0 AND r.rn_non_tie IS NOT NULL AND r.rn_non_tie <= GREATEST(0::bigint, 5 - r.tieup_count) THEN 1
                     ELSE 0
                 END AS include_flag,
-            r."PURCHASEPRICE"
+             r."PURCHPRICE"
            FROM ranked r) t
   WHERE include_flag = 1
   ORDER BY "PAGE", "PAGEPOSN", "COMCATMAN", "COMOFFERIC1", "COMOFFERTYPE", "OFFERTYPE", "PARTNO";
