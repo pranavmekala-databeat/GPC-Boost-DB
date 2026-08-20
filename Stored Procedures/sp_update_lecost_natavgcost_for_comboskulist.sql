@@ -139,7 +139,9 @@ BEGIN
  
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
- 
+            future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
+            future_ppr."startDate" AS "futureEdEffectiveDate",
+
             p."vendorCostPerEach",
             p."nationalAvgCost",
             p."isActive",
@@ -195,6 +197,8 @@ BEGIN
             v_channel, v_gst,
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
+            future_ppr."pricePoint6IncludingGst",
+            future_ppr."startDate",
             p."vendorCostPerEach", p."nationalAvgCost",
             p."isActive",
             p."clearance",
@@ -259,7 +263,23 @@ BEGIN
                                 END, 2
                             )
                     END
-                END AS base_rrp_price
+                END AS base_rrp_price,
+            CASE
+                WHEN d."futurePricePoint6IncludingGst" IS NULL THEN NULL
+                ELSE
+                    ROUND(
+                        CASE
+                            WHEN (ROUND(d."futurePricePoint6IncludingGst", 2)) < 1 THEN
+                                CEILING((ROUND(d."futurePricePoint6IncludingGst", 2)) * 10) / 10.0
+                            WHEN (ROUND(d."futurePricePoint6IncludingGst", 2)) < 10 THEN
+                                CASE WHEN ((ROUND(d."futurePricePoint6IncludingGst", 2)) - FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))) > 0.5
+                                     THEN CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
+                                     ELSE FLOOR(ROUND(d."futurePricePoint6IncludingGst", 2))
+                                END
+                            ELSE CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
+                        END, 2
+                    )
+            END AS future_rrp_price
         FROM data d
     )
     UPDATE "tEventOfferDetail" e
@@ -284,6 +304,8 @@ BEGIN
  
         "extendedAdvertisedPrice" = ROUND(d.calc_units) * ROUND(COALESCE(e."advertisedPrice", 0),2) ,
         "everydayCost" = ROUND(COALESCE(d."nationalAvgCost", 0),2) ,
+        "futureEdPrice" = d.future_rrp_price,
+        "futureEdEffectiveDate" = d."futureEdEffectiveDate",
         "isCategoryForecastLocked" =
                                     CASE
                                         WHEN e."isSkuEdited" IS FALSE OR e."isSkuEdited" IS NULL
