@@ -111,6 +111,7 @@ BEGIN
         WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
           AND pld."isActive"
           AND pld.company = v_company
+          AND pld."startDate" <= CURRENT_DATE
           AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
 
@@ -130,16 +131,59 @@ BEGIN
         GROUP BY "sku","country"
     ),
 
+    "futurePricelistDetail" AS (
+        SELECT
+            pld."sku",
+            pld."priceList",
+            pld."priceListPrice",
+            pld."startDate",
+            pld."country",
+            ROW_NUMBER() OVER (
+                PARTITION BY pld."sku", pld."country",
+                CASE
+                    WHEN pld."priceList" = '050' THEN 'clearance'
+                    WHEN pld."priceList" = '184' THEN 'special_184'
+                    WHEN pld."priceList" = '499' THEN 'nz_clearance_499'
+                    WHEN pld."priceList" = '498' THEN 'nz_special_498'
+                    WHEN pld."priceList" IN ('390','419','824','343','446','241') THEN 'au_primary'
+                    WHEN pld."priceList" = '036' THEN 'au_fallback'
+                    WHEN pld."priceList" IN ('371','274','211','044','134','021') THEN 'nz_primary'
+                    WHEN pld."priceList" = '492' THEN 'nz_fallback'
+                END
+                ORDER BY pld."startDate" ASC
+            ) AS group_rn
+        FROM "tPriceListDetail" pld
+        INNER JOIN "tPriceList" pl ON pld."priceList" = pl."priceList"
+        WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
+          AND pld."isActive"
+          AND pld.company = v_company
+          AND pld."startDate" > CURRENT_DATE
+          AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
+    ),
+
+    "future_pivoted_prices" AS (
+        SELECT
+            "sku","country",
+            MAX(CASE WHEN "priceList" = '050' AND group_rn = 1 THEN "priceListPrice" END) AS priceList50,
+            MAX(CASE WHEN "priceList" = '184' AND group_rn = 1 THEN "priceListPrice" END) AS priceList184,
+            MAX(CASE WHEN "priceList" = '499' AND group_rn = 1 THEN "priceListPrice" END) AS priceList499,
+            MAX(CASE WHEN "priceList" = '498' AND group_rn = 1 THEN "priceListPrice" END) AS priceList498,
+            MAX(CASE WHEN "priceList" IN ('390','419','824','343','446','241') AND group_rn = 1 THEN "priceListPrice" END) AS au_primary_price,
+            MAX(CASE WHEN "priceList" = '036' AND group_rn = 1 THEN "priceListPrice" END) AS au_fallback_price_036,
+            MAX(CASE WHEN "priceList" IN ('371','274','211','044','134','021') AND group_rn = 1 THEN "priceListPrice" END) AS nz_primary_price,
+            MAX(CASE WHEN "priceList" = '492' AND group_rn = 1 THEN "priceListPrice" END) AS nz_fallback_price_492,
+            MIN(CASE WHEN group_rn = 1 THEN "startDate" END) AS "futurePriceListStartDate"
+        FROM "futurePricelistDetail"
+        WHERE group_rn = 1
+        GROUP BY "sku","country"
+    ),
+
     "future_ppr" AS (
         SELECT
             ppr_future."sku",
             ppr_future."company",
             ppr_future."pricePoint6IncludingGst",
-            ppr_future."startDate",
-            ROW_NUMBER() OVER (
-                PARTITION BY ppr_future."sku", ppr_future."company"
-                ORDER BY ppr_future."startDate" ASC
-            ) AS rn
+            ppr_future."startDate"
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
@@ -165,7 +209,7 @@ BEGIN
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
             future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEdEffectiveDate",
+            future_ppr."startDate" AS "futurePprStartDate",
             p."vendorCostPerEach",
             p."nationalAvgCost" AS natAvgCost,
             eoh."incrementalPercentage",
@@ -182,7 +226,16 @@ BEGIN
             pp.au_primary_price,
             pp.au_fallback_price_036,
             pp.nz_primary_price,
-            pp.nz_fallback_price_492
+            pp.nz_fallback_price_492,
+            fpp.priceList50 AS "futurePriceList50",
+            fpp.priceList184 AS "futurePriceList184",
+            fpp.priceList499 AS "futurePriceList499",
+            fpp.priceList498 AS "futurePriceList498",
+            fpp.au_primary_price AS "futureAuPrimaryPrice",
+            fpp.au_fallback_price_036 AS "futureAuFallbackPrice036",
+            fpp.nz_primary_price AS "futureNzPrimaryPrice",
+            fpp.nz_fallback_price_492 AS "futureNzFallbackPrice492",
+            fpp."futurePriceListStartDate"
         FROM "tEventOfferDetail" eod
         INNER JOIN "tEventOffer" eoh
             ON eod."offerId" = eoh."offerId"
@@ -199,8 +252,8 @@ BEGIN
          LEFT JOIN "future_ppr" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
          LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
+         LEFT JOIN "future_pivoted_prices" fpp ON fpp."sku" = eod."sku" AND fpp."country" = eh."country"
          LEFT JOIN "tInventory" inv ON inv."sku" = eod."sku" and inv."company" IN (eh."company",'12','52')
          LEFT JOIN "tSalesY1" s
             ON s."sku" = eod."sku"
@@ -239,7 +292,16 @@ BEGIN
             pp.au_primary_price,
             pp.au_fallback_price_036,
             pp.nz_primary_price,
-            pp.nz_fallback_price_492
+            pp.nz_fallback_price_492,
+            fpp.priceList50,
+            fpp.priceList184,
+            fpp.priceList499,
+            fpp.priceList498,
+            fpp.au_primary_price,
+            fpp.au_fallback_price_036,
+            fpp.nz_primary_price,
+            fpp.nz_fallback_price_492,
+            fpp."futurePriceListStartDate"
     ),
 
     "baseRrpCalculation_PCTOffRange" AS (
@@ -292,6 +354,16 @@ BEGIN
                           )
                   END
               END AS base_rrp_price,
+              -- Future price-list waterfall result (special -> primary -> fallback),
+              -- computed independently of source so it can be compared against the
+              -- future PPR pricePoint6 result below and the earlier date can win.
+              CASE
+                  WHEN d."country" = 'AU' THEN
+                      COALESCE(LEAST(d."futurePriceList50", d."futurePriceList184"), d."futureAuPrimaryPrice", d."futureAuFallbackPrice036")
+                  WHEN d."country" = 'NZ' THEN
+                      COALESCE(LEAST(d."futurePriceList499", d."futurePriceList498"), d."futureNzPrimaryPrice", d."futureNzFallbackPrice492")
+              END AS future_pricelist_rrp,
+              -- Future PPR pricePoint6 result, rounded the same way as base_rrp_price's fallback.
               CASE
                   WHEN d."futurePricePoint6IncludingGst" IS NULL THEN NULL
                   ELSE
@@ -307,8 +379,30 @@ BEGIN
                               ELSE CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
                           END, 2
                       )
-              END AS future_rrp_price
+              END AS future_ppr_rrp
       FROM updateEventOfferDtlForPCTOffRange d
+    ),
+
+    "baseRrpCalculation_PCTOffRangeResolved" AS (
+        SELECT
+            d.*,
+            CASE
+                WHEN d.future_pricelist_rrp IS NOT NULL
+                     AND (d."futurePprStartDate" IS NULL OR d."futurePriceListStartDate" <= d."futurePprStartDate")
+                THEN d.future_pricelist_rrp
+                WHEN d.future_ppr_rrp IS NOT NULL
+                THEN d.future_ppr_rrp
+                ELSE d.future_pricelist_rrp
+            END AS future_rrp_price,
+            CASE
+                WHEN d.future_pricelist_rrp IS NOT NULL
+                     AND (d."futurePprStartDate" IS NULL OR d."futurePriceListStartDate" <= d."futurePprStartDate")
+                THEN d."futurePriceListStartDate"
+                WHEN d.future_ppr_rrp IS NOT NULL
+                THEN d."futurePprStartDate"
+                ELSE d."futurePriceListStartDate"
+            END AS future_rrp_effective_date
+        FROM "baseRrpCalculation_PCTOffRange" d
     ),
 
     calculationsForEventOfferDtlPCTOffRange AS (
@@ -330,7 +424,7 @@ BEGIN
                 THEN ROUND(d.base_rrp_price / (1+ COALESCE(d.gst_value,0)),2)
                 ELSE ROUND((d.base_rrp_price - (d.base_rrp_price * d."savePercent"/100)) / (1+COALESCE(d.gst_value,0)),2)
             END AS new_advertisedPrice
-        FROM "baseRrpCalculation_PCTOffRange" d
+        FROM "baseRrpCalculation_PCTOffRangeResolved" d
     )
     UPDATE "tEventOfferDetail" e
     SET
@@ -348,7 +442,7 @@ BEGIN
 END,
 "clearanceIndicator" = CASE WHEN c."clearance" IS NULL OR TRIM(c."clearance") = '' THEN 'N' ELSE c."clearance" END,
         "futureEdPrice" = c.future_rrp_price,
-        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
+        "futureEdEffectiveDate" = c.future_rrp_effective_date,
         "categoryforecast" = c.categoryFcst ,
         "forecastCost"=Round(ROUND(COALESCE(c."vendorCostPerEach",0),2)*c.categoryFcst,2) ,
         "forecastSales"=Round(c.categoryFcst*ROUND(c.new_advertisedPriceGst,2),2) ,
@@ -553,6 +647,7 @@ WHERE o."offerId" = s."offerId"
         WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
           AND pld."isActive"
           AND pld.company = v_company
+          AND pld."startDate" <= CURRENT_DATE
           AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
 
@@ -572,16 +667,59 @@ WHERE o."offerId" = s."offerId"
         GROUP BY "sku","country"
     ),
 
+    "futurePricelistDetail" AS (
+        SELECT
+            pld."sku",
+            pld."priceList",
+            pld."priceListPrice",
+            pld."startDate",
+            pld."country",
+            ROW_NUMBER() OVER (
+                PARTITION BY pld."sku", pld."country",
+                CASE
+                    WHEN pld."priceList" = '050' THEN 'clearance'
+                    WHEN pld."priceList" = '184' THEN 'special_184'
+                    WHEN pld."priceList" = '499' THEN 'nz_clearance_499'
+                    WHEN pld."priceList" = '498' THEN 'nz_special_498'
+                    WHEN pld."priceList" IN ('390','419','824','343','446','241') THEN 'au_primary'
+                    WHEN pld."priceList" = '036' THEN 'au_fallback'
+                    WHEN pld."priceList" IN ('371','274','211','044','134','021') THEN 'nz_primary'
+                    WHEN pld."priceList" = '492' THEN 'nz_fallback'
+                END
+                ORDER BY pld."startDate" ASC
+            ) AS group_rn
+        FROM "tPriceListDetail" pld
+        INNER JOIN "tPriceList" pl ON pld."priceList" = pl."priceList"
+        WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
+          AND pld."isActive"
+          AND pld.company = v_company
+          AND pld."startDate" > CURRENT_DATE
+          AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
+    ),
+
+    "future_pivoted_prices" AS (
+        SELECT
+            "sku","country",
+            MAX(CASE WHEN "priceList" = '050' AND group_rn = 1 THEN "priceListPrice" END) AS priceList50,
+            MAX(CASE WHEN "priceList" = '184' AND group_rn = 1 THEN "priceListPrice" END) AS priceList184,
+            MAX(CASE WHEN "priceList" = '499' AND group_rn = 1 THEN "priceListPrice" END) AS priceList499,
+            MAX(CASE WHEN "priceList" = '498' AND group_rn = 1 THEN "priceListPrice" END) AS priceList498,
+            MAX(CASE WHEN "priceList" IN ('390','419','824','343','446','241') AND group_rn = 1 THEN "priceListPrice" END) AS au_primary_price,
+            MAX(CASE WHEN "priceList" = '036' AND group_rn = 1 THEN "priceListPrice" END) AS au_fallback_price_036,
+            MAX(CASE WHEN "priceList" IN ('371','274','211','044','134','021') AND group_rn = 1 THEN "priceListPrice" END) AS nz_primary_price,
+            MAX(CASE WHEN "priceList" = '492' AND group_rn = 1 THEN "priceListPrice" END) AS nz_fallback_price_492,
+            MIN(CASE WHEN group_rn = 1 THEN "startDate" END) AS "futurePriceListStartDate"
+        FROM "futurePricelistDetail"
+        WHERE group_rn = 1
+        GROUP BY "sku","country"
+    ),
+
     "future_ppr" AS (
         SELECT
             ppr_future."sku",
             ppr_future."company",
             ppr_future."pricePoint6IncludingGst",
-            ppr_future."startDate",
-            ROW_NUMBER() OVER (
-                PARTITION BY ppr_future."sku", ppr_future."company"
-                ORDER BY ppr_future."startDate" ASC
-            ) AS rn
+            ppr_future."startDate"
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
@@ -612,7 +750,7 @@ WHERE o."offerId" = s."offerId"
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
             future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEdEffectiveDate",
+            future_ppr."startDate" AS "futurePprStartDate",
             p."vendorCostPerEach",
             p."nationalAvgCost" ,
             bool_and(p."isActive") AS "isActive",
@@ -630,7 +768,16 @@ WHERE o."offerId" = s."offerId"
             pp.au_primary_price,
             pp.au_fallback_price_036,
             pp.nz_primary_price,
-            pp.nz_fallback_price_492
+            pp.nz_fallback_price_492,
+            fpp.priceList50 AS "futurePriceList50",
+            fpp.priceList184 AS "futurePriceList184",
+            fpp.priceList499 AS "futurePriceList499",
+            fpp.priceList498 AS "futurePriceList498",
+            fpp.au_primary_price AS "futureAuPrimaryPrice",
+            fpp.au_fallback_price_036 AS "futureAuFallbackPrice036",
+            fpp.nz_primary_price AS "futureNzPrimaryPrice",
+            fpp.nz_fallback_price_492 AS "futureNzFallbackPrice492",
+            fpp."futurePriceListStartDate"
 
         FROM "tEventOfferDetail" eod
         INNER JOIN "tEventOffer" eoh
@@ -650,8 +797,8 @@ WHERE o."offerId" = s."offerId"
         LEFT JOIN "future_ppr" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
         LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
+        LEFT JOIN "future_pivoted_prices" fpp ON fpp."sku" = eod."sku" AND fpp."country" = eh."country"
         LEFT JOIN "tInventory" inv
             ON inv."sku" = eod."sku"
             AND inv."company" IN (eh."company",'12','52')
@@ -697,7 +844,16 @@ WHERE o."offerId" = s."offerId"
             pp.au_primary_price,
             pp.au_fallback_price_036,
             pp.nz_primary_price,
-            pp.nz_fallback_price_492
+            pp.nz_fallback_price_492,
+            fpp.priceList50,
+            fpp.priceList184,
+            fpp.priceList499,
+            fpp.priceList498,
+            fpp.au_primary_price,
+            fpp.au_fallback_price_036,
+            fpp.nz_primary_price,
+            fpp.nz_fallback_price_492,
+            fpp."futurePriceListStartDate"
     ),
 
     "baseRrpCalculation_STDRangePrice" AS (
@@ -750,6 +906,16 @@ WHERE o."offerId" = s."offerId"
                           )
                   END
               END AS base_rrp_price,
+              -- Future price-list waterfall result (special -> primary -> fallback),
+              -- computed independently of source so it can be compared against the
+              -- future PPR pricePoint6 result below and the earlier date can win.
+              CASE
+                  WHEN d."country" = 'AU' THEN
+                      COALESCE(LEAST(d."futurePriceList50", d."futurePriceList184"), d."futureAuPrimaryPrice", d."futureAuFallbackPrice036")
+                  WHEN d."country" = 'NZ' THEN
+                      COALESCE(LEAST(d."futurePriceList499", d."futurePriceList498"), d."futureNzPrimaryPrice", d."futureNzFallbackPrice492")
+              END AS future_pricelist_rrp,
+              -- Future PPR pricePoint6 result, rounded the same way as base_rrp_price's fallback.
               CASE
                   WHEN d."futurePricePoint6IncludingGst" IS NULL THEN NULL
                   ELSE
@@ -765,8 +931,30 @@ WHERE o."offerId" = s."offerId"
                               ELSE CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
                           END, 2
                       )
-              END AS future_rrp_price
+              END AS future_ppr_rrp
       FROM updateEventOfferDtlForSTDRangePrice d
+    ),
+
+    "baseRrpCalculation_STDRangePriceResolved" AS (
+        SELECT
+            d.*,
+            CASE
+                WHEN d.future_pricelist_rrp IS NOT NULL
+                     AND (d."futurePprStartDate" IS NULL OR d."futurePriceListStartDate" <= d."futurePprStartDate")
+                THEN d.future_pricelist_rrp
+                WHEN d.future_ppr_rrp IS NOT NULL
+                THEN d.future_ppr_rrp
+                ELSE d.future_pricelist_rrp
+            END AS future_rrp_price,
+            CASE
+                WHEN d.future_pricelist_rrp IS NOT NULL
+                     AND (d."futurePprStartDate" IS NULL OR d."futurePriceListStartDate" <= d."futurePprStartDate")
+                THEN d."futurePriceListStartDate"
+                WHEN d.future_ppr_rrp IS NOT NULL
+                THEN d."futurePprStartDate"
+                ELSE d."futurePriceListStartDate"
+            END AS future_rrp_effective_date
+        FROM "baseRrpCalculation_STDRangePrice" d
     ),
 
     calculationsForEventOfferDtlSTDRangePrice AS (
@@ -782,7 +970,7 @@ WHERE o."offerId" = s."offerId"
             CASE WHEN d."clearance" = 'Y' THEN ROUND(d.base_rrp_price/(1+ COALESCE(d.gst_value, 0)),2)
             ELSE ROUND((p_advertised_price_gst)/(1+ COALESCE(d.gst_value, 0)),2) END AS new_advertisedPrice,
             ROUND(d."nationalAvgCost",2) as natAvgCost
-        FROM "baseRrpCalculation_STDRangePrice" d
+        FROM "baseRrpCalculation_STDRangePriceResolved" d
     )
     UPDATE "tEventOfferDetail" e
     SET
@@ -817,7 +1005,7 @@ END,
         "extendedAdvertisedPrice" = ROUND(c.calc_units) * COALESCE(c.new_advertisedPriceGst, 0) ,
         "everydayCost" = COALESCE(c.natAvgCost, 0) ,
         "futureEdPrice" = c.future_rrp_price,
-        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
+        "futureEdEffectiveDate" = c.future_rrp_effective_date,
        "incrementalSales"=Round(Round(c.categoryFcst*ROUND(c.new_advertisedPriceGst,2),2) - (ROUND(c.calc_units)*c.new_everydayPriceGst),2) ,
         "incrementalTrade$" =  ROUND( ROUND((c.new_advertisedPrice - ROUND(COALESCE(c."vendorCostPerEach",0),2)) * c.categoryFcst,2) - ROUND((Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2)-ROUND(COALESCE(c."vendorCostPerEach",0),2) )*ROUND(c.calc_units),2), 2) ,
          "forecastTradeMargin%" = CASE
@@ -1003,6 +1191,7 @@ WHERE o."offerId" = s."offerId"
         WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
           AND pld."isActive"
           AND pld.company = v_company
+          AND pld."startDate" <= CURRENT_DATE
           AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
 
@@ -1022,13 +1211,56 @@ WHERE o."offerId" = s."offerId"
         GROUP BY "sku","country"
     ),
 
+    "futurePricelistDetail" AS (
+        SELECT
+            pld."sku",
+            pld."priceList",
+            pld."priceListPrice",
+            pld."startDate",
+            pld."country",
+            ROW_NUMBER() OVER (
+                PARTITION BY pld."sku", pld."country",
+                CASE
+                    WHEN pld."priceList" = '050' THEN 'clearance'
+                    WHEN pld."priceList" = '184' THEN 'special_184'
+                    WHEN pld."priceList" = '499' THEN 'nz_clearance_499'
+                    WHEN pld."priceList" = '498' THEN 'nz_special_498'
+                    WHEN pld."priceList" IN ('390','419','824','343','446','241') THEN 'au_primary'
+                    WHEN pld."priceList" = '036' THEN 'au_fallback'
+                    WHEN pld."priceList" IN ('371','274','211','044','134','021') THEN 'nz_primary'
+                    WHEN pld."priceList" = '492' THEN 'nz_fallback'
+                END
+                ORDER BY pld."startDate" ASC
+            ) AS group_rn
+        FROM "tPriceListDetail" pld
+        INNER JOIN "tPriceList" pl ON pld."priceList" = pl."priceList"
+        WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
+          AND pld."isActive"
+          AND pld.company = v_company
+          AND pld."startDate" > CURRENT_DATE
+          AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
+    ),
+
+    "future_pivoted_prices" AS (
+        SELECT
+            "sku","country",
+            MAX(CASE WHEN "priceList" = '050' AND group_rn = 1 THEN "priceListPrice" END) AS priceList50,
+            MAX(CASE WHEN "priceList" = '184' AND group_rn = 1 THEN "priceListPrice" END) AS priceList184,
+            MAX(CASE WHEN "priceList" = '499' AND group_rn = 1 THEN "priceListPrice" END) AS priceList499,
+            MAX(CASE WHEN "priceList" = '498' AND group_rn = 1 THEN "priceListPrice" END) AS priceList498,
+            MAX(CASE WHEN "priceList" IN ('390','419','824','343','446','241') AND group_rn = 1 THEN "priceListPrice" END) AS au_primary_price,
+            MAX(CASE WHEN "priceList" = '036' AND group_rn = 1 THEN "priceListPrice" END) AS au_fallback_price_036,
+            MAX(CASE WHEN "priceList" IN ('371','274','211','044','134','021') AND group_rn = 1 THEN "priceListPrice" END) AS nz_primary_price,
+            MAX(CASE WHEN "priceList" = '492' AND group_rn = 1 THEN "priceListPrice" END) AS nz_fallback_price_492,
+            MIN(CASE WHEN group_rn = 1 THEN "startDate" END) AS "futurePriceListStartDate"
+        FROM "futurePricelistDetail"
+        WHERE group_rn = 1
+        GROUP BY "sku","country"
+    ),
+
     "future_ppr" AS (
         SELECT ppr_future."sku", ppr_future."company",
-               ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
-               ROW_NUMBER() OVER (
-                   PARTITION BY ppr_future."sku", ppr_future."company"
-                   ORDER BY ppr_future."startDate" ASC
-               ) AS rn
+               ppr_future."pricePoint6IncludingGst", ppr_future."startDate"
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
@@ -1059,7 +1291,7 @@ WHERE o."offerId" = s."offerId"
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
             future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEdEffectiveDate",
+            future_ppr."startDate" AS "futurePprStartDate",
             p."vendorCostPerEach",
             p."nationalAvgCost" ,
             bool_and(p."isActive") AS "isActive",
@@ -1077,7 +1309,16 @@ WHERE o."offerId" = s."offerId"
             pp.au_primary_price,
             pp.au_fallback_price_036,
             pp.nz_primary_price,
-            pp.nz_fallback_price_492
+            pp.nz_fallback_price_492,
+            fpp.priceList50 AS "futurePriceList50",
+            fpp.priceList184 AS "futurePriceList184",
+            fpp.priceList499 AS "futurePriceList499",
+            fpp.priceList498 AS "futurePriceList498",
+            fpp.au_primary_price AS "futureAuPrimaryPrice",
+            fpp.au_fallback_price_036 AS "futureAuFallbackPrice036",
+            fpp.nz_primary_price AS "futureNzPrimaryPrice",
+            fpp.nz_fallback_price_492 AS "futureNzFallbackPrice492",
+            fpp."futurePriceListStartDate"
 
         FROM "tEventOfferDetail" eod
         INNER JOIN "tEventOffer" eoh
@@ -1097,8 +1338,8 @@ WHERE o."offerId" = s."offerId"
         LEFT JOIN "future_ppr" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
         LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
+        LEFT JOIN "future_pivoted_prices" fpp ON fpp."sku" = eod."sku" AND fpp."country" = eh."country"
         LEFT JOIN "tInventory" inv
             ON inv."sku" = eod."sku"
             AND inv."company" IN (eh."company",'12','52')
@@ -1144,7 +1385,16 @@ WHERE o."offerId" = s."offerId"
             pp.au_primary_price,
             pp.au_fallback_price_036,
             pp.nz_primary_price,
-            pp.nz_fallback_price_492
+            pp.nz_fallback_price_492,
+            fpp.priceList50,
+            fpp.priceList184,
+            fpp.priceList499,
+            fpp.priceList498,
+            fpp.au_primary_price,
+            fpp.au_fallback_price_036,
+            fpp.nz_primary_price,
+            fpp.nz_fallback_price_492,
+            fpp."futurePriceListStartDate"
     ),
 
     "baseRrpCalculation_ComboList" AS (
@@ -1197,6 +1447,16 @@ WHERE o."offerId" = s."offerId"
                             )
                     END
                 END AS base_rrp_price,
+            -- Future price-list waterfall result (special -> primary -> fallback),
+            -- computed independently of source so it can be compared against the
+            -- future PPR pricePoint6 result below and the earlier date can win.
+            CASE
+                WHEN d."country" = 'AU' THEN
+                    COALESCE(LEAST(d."futurePriceList50", d."futurePriceList184"), d."futureAuPrimaryPrice", d."futureAuFallbackPrice036")
+                WHEN d."country" = 'NZ' THEN
+                    COALESCE(LEAST(d."futurePriceList499", d."futurePriceList498"), d."futureNzPrimaryPrice", d."futureNzFallbackPrice492")
+            END AS future_pricelist_rrp,
+            -- Future PPR pricePoint6 result, rounded the same way as base_rrp_price's fallback.
             CASE
                 WHEN d."futurePricePoint6IncludingGst" IS NULL THEN NULL
                 ELSE
@@ -1212,8 +1472,30 @@ WHERE o."offerId" = s."offerId"
                             ELSE CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
                         END, 2
                     )
-            END AS future_rrp_price
+            END AS future_ppr_rrp
         FROM updateEventOfferDtlForComboList d
+    ),
+
+    "baseRrpCalculation_ComboListResolved" AS (
+        SELECT
+            d.*,
+            CASE
+                WHEN d.future_pricelist_rrp IS NOT NULL
+                     AND (d."futurePprStartDate" IS NULL OR d."futurePriceListStartDate" <= d."futurePprStartDate")
+                THEN d.future_pricelist_rrp
+                WHEN d.future_ppr_rrp IS NOT NULL
+                THEN d.future_ppr_rrp
+                ELSE d.future_pricelist_rrp
+            END AS future_rrp_price,
+            CASE
+                WHEN d.future_pricelist_rrp IS NOT NULL
+                     AND (d."futurePprStartDate" IS NULL OR d."futurePriceListStartDate" <= d."futurePprStartDate")
+                THEN d."futurePriceListStartDate"
+                WHEN d.future_ppr_rrp IS NOT NULL
+                THEN d."futurePprStartDate"
+                ELSE d."futurePriceListStartDate"
+            END AS future_rrp_effective_date
+        FROM "baseRrpCalculation_ComboList" d
     ),
 
     calculationsForEventOfferDtlComboList AS (
@@ -1229,7 +1511,7 @@ WHERE o."offerId" = s."offerId"
             CASE WHEN d."clearance" = 'Y' THEN ROUND(d.base_rrp_price/(1+ COALESCE(d.gst_value, 0)),2)
             ELSE ROUND((p_advertised_price_gst)/(1+ COALESCE(d.gst_value, 0)),2) END AS new_advertisedPrice,
             ROUND(d."nationalAvgCost",2) as natAvgCost
-        FROM "baseRrpCalculation_ComboList" d
+        FROM "baseRrpCalculation_ComboListResolved" d
     )
     UPDATE "tEventOfferDetail" e
     SET
@@ -1263,7 +1545,7 @@ END,
         "extendedAdvertisedPrice" = ROUND(c.calc_units) * COALESCE(c.new_advertisedPriceGst, 0) ,
         "everydayCost" = COALESCE(c.natAvgCost, 0) ,
         "futureEdPrice" = c.future_rrp_price,
-        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
+        "futureEdEffectiveDate" = c.future_rrp_effective_date,
         "incrementalSales"=Round(Round(c.categoryFcst*ROUND(c.new_advertisedPriceGst,2),2) - (ROUND(c.calc_units)*c.new_everydayPriceGst),2) ,
         "incrementalTrade$" =  ROUND( ROUND((c.new_advertisedPrice - ROUND(COALESCE(c."vendorCostPerEach",0),2)) * c.categoryFcst,2) - ROUND((Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2)-ROUND(COALESCE(c."vendorCostPerEach",0),2) )*ROUND(c.calc_units),2), 2) ,
         "forecastTradeMargin%" = CASE
@@ -1447,6 +1729,7 @@ WHERE o."offerId" = s."offerId"
         WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
           AND pld."isActive"
           AND pld.company = v_company
+          AND pld."startDate" <= CURRENT_DATE
           AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
 
@@ -1466,13 +1749,56 @@ WHERE o."offerId" = s."offerId"
         GROUP BY "sku","country"
     ),
 
+    "futurePricelistDetail" AS (
+        SELECT
+            pld."sku",
+            pld."priceList",
+            pld."priceListPrice",
+            pld."startDate",
+            pld."country",
+            ROW_NUMBER() OVER (
+                PARTITION BY pld."sku",pld."country",
+                CASE
+                    WHEN pld."priceList" = '050' THEN 'clearance'
+                    WHEN pld."priceList" = '184' THEN 'special_184'
+                    WHEN pld."priceList" = '499' THEN 'nz_clearance_499'
+                    WHEN pld."priceList" = '498' THEN 'nz_special_498'
+                    WHEN pld."priceList" IN ('390','419','824','343','446','241') THEN 'au_primary'
+                    WHEN pld."priceList" = '036' THEN 'au_fallback'
+                    WHEN pld."priceList" IN ('371','274','211','044','134','021') THEN 'nz_primary'
+                    WHEN pld."priceList" = '492' THEN 'nz_fallback'
+                END
+                ORDER BY pld."startDate" ASC
+            ) AS group_rn
+        FROM "tPriceListDetail" pld
+        INNER JOIN "tPriceList" pl ON pld."priceList" = pl."priceList"
+        WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
+          AND pld."isActive"
+          AND pld.company = v_company
+          AND pld."startDate" > CURRENT_DATE
+          AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
+    ),
+
+    "future_pivoted_prices" AS (
+        SELECT
+            "sku","country",
+            MAX(CASE WHEN "priceList" = '050' AND group_rn = 1 THEN "priceListPrice" END) AS priceList50,
+            MAX(CASE WHEN "priceList" = '184' AND group_rn = 1 THEN "priceListPrice" END) AS priceList184,
+            MAX(CASE WHEN "priceList" = '499' AND group_rn = 1 THEN "priceListPrice" END) AS priceList499,
+            MAX(CASE WHEN "priceList" = '498' AND group_rn = 1 THEN "priceListPrice" END) AS priceList498,
+            MAX(CASE WHEN "priceList" IN ('390','419','824','343','446','241') AND group_rn = 1 THEN "priceListPrice" END) AS au_primary_price,
+            MAX(CASE WHEN "priceList" = '036' AND group_rn = 1 THEN "priceListPrice" END) AS au_fallback_price_036,
+            MAX(CASE WHEN "priceList" IN ('371','274','211','044','134','021') AND group_rn = 1 THEN "priceListPrice" END) AS nz_primary_price,
+            MAX(CASE WHEN "priceList" = '492' AND group_rn = 1 THEN "priceListPrice" END) AS nz_fallback_price_492,
+            MIN(CASE WHEN group_rn = 1 THEN "startDate" END) AS "futurePriceListStartDate"
+        FROM "futurePricelistDetail"
+        WHERE group_rn = 1
+        GROUP BY "sku","country"
+    ),
+
     "future_ppr" AS (
         SELECT ppr_future."sku", ppr_future."company",
-               ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
-               ROW_NUMBER() OVER (
-                   PARTITION BY ppr_future."sku", ppr_future."company"
-                   ORDER BY ppr_future."startDate" ASC
-               ) AS rn
+               ppr_future."pricePoint6IncludingGst", ppr_future."startDate"
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
@@ -1505,7 +1831,7 @@ WHERE o."offerId" = s."offerId"
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
             future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEdEffectiveDate",
+            future_ppr."startDate" AS "futurePprStartDate",
             p."vendorCostPerEach",
             p."nationalAvgCost" AS natAvgCost,
             bool_and(p."isActive") AS "isActive",
@@ -1520,7 +1846,17 @@ WHERE o."offerId" = s."offerId"
             pp.au_primary_price,
             pp.au_fallback_price_036,
             pp.nz_primary_price,
-            pp.nz_fallback_price_492
+            pp.nz_fallback_price_492,
+
+            fpp.priceList50 AS "futurePriceList50",
+            fpp.priceList184 AS "futurePriceList184",
+            fpp.priceList499 AS "futurePriceList499",
+            fpp.priceList498 AS "futurePriceList498",
+            fpp.au_primary_price AS "futureAuPrimaryPrice",
+            fpp.au_fallback_price_036 AS "futureAuFallbackPrice036",
+            fpp.nz_primary_price AS "futureNzPrimaryPrice",
+            fpp.nz_fallback_price_492 AS "futureNzFallbackPrice492",
+            fpp."futurePriceListStartDate"
 
         FROM "tEventOfferDetail" eod
         INNER JOIN "tEventOffer" eoh
@@ -1541,8 +1877,8 @@ WHERE o."offerId" = s."offerId"
         LEFT JOIN "future_ppr" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
         LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
+        LEFT JOIN "future_pivoted_prices" fpp ON fpp."sku" = eod."sku" AND fpp."country" = eh."country"
         LEFT JOIN "tInventory" inv
             ON inv."sku" = eod."sku"
             AND inv."company" IN (eh."company", '12', '52')
@@ -1588,7 +1924,16 @@ WHERE o."offerId" = s."offerId"
             pp.au_primary_price,
             pp.au_fallback_price_036,
             pp.nz_primary_price,
-            pp.nz_fallback_price_492
+            pp.nz_fallback_price_492,
+            fpp.priceList50,
+            fpp.priceList184,
+            fpp.priceList499,
+            fpp.priceList498,
+            fpp.au_primary_price,
+            fpp.au_fallback_price_036,
+            fpp.nz_primary_price,
+            fpp.nz_fallback_price_492,
+            fpp."futurePriceListStartDate"
     ),
 
     "baseRrpCalculation_MultiBuySKUList" AS (
@@ -1641,6 +1986,16 @@ WHERE o."offerId" = s."offerId"
                             )
                     END
                 END AS base_rrp_price,
+            -- Future price-list waterfall result (special -> primary -> fallback),
+            -- computed independently of source so it can be compared against the
+            -- future PPR pricePoint6 result below and the earlier date can win.
+            CASE
+                WHEN d."country" = 'AU' THEN
+                    COALESCE(LEAST(d."futurePriceList50", d."futurePriceList184"), d."futureAuPrimaryPrice", d."futureAuFallbackPrice036")
+                WHEN d."country" = 'NZ' THEN
+                    COALESCE(LEAST(d."futurePriceList499", d."futurePriceList498"), d."futureNzPrimaryPrice", d."futureNzFallbackPrice492")
+            END AS future_pricelist_rrp,
+            -- Future PPR pricePoint6 result, rounded the same way as base_rrp_price's fallback.
             CASE
                 WHEN d."futurePricePoint6IncludingGst" IS NULL THEN NULL
                 ELSE
@@ -1656,8 +2011,30 @@ WHERE o."offerId" = s."offerId"
                             ELSE CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
                         END, 2
                     )
-            END AS future_rrp_price
+            END AS future_ppr_rrp
         FROM updateEventOfferDtlForMultiBuySKUList d
+    ),
+
+    "baseRrpCalculation_MultiBuySKUListResolved" AS (
+        SELECT
+            d.*,
+            CASE
+                WHEN d.future_pricelist_rrp IS NOT NULL
+                     AND (d."futurePprStartDate" IS NULL OR d."futurePriceListStartDate" <= d."futurePprStartDate")
+                THEN d.future_pricelist_rrp
+                WHEN d.future_ppr_rrp IS NOT NULL
+                THEN d.future_ppr_rrp
+                ELSE d.future_pricelist_rrp
+            END AS future_rrp_price,
+            CASE
+                WHEN d.future_pricelist_rrp IS NOT NULL
+                     AND (d."futurePprStartDate" IS NULL OR d."futurePriceListStartDate" <= d."futurePprStartDate")
+                THEN d."futurePriceListStartDate"
+                WHEN d.future_ppr_rrp IS NOT NULL
+                THEN d."futurePprStartDate"
+                ELSE d."futurePriceListStartDate"
+            END AS future_rrp_effective_date
+        FROM "baseRrpCalculation_MultiBuySKUList" d
     ),
 
     calculationsForEventOfferDtlMultiBuySKUList AS (
@@ -1692,7 +2069,7 @@ WHERE o."offerId" = s."offerId"
                     2)
             END AS new_advertisedPrice
 
-        FROM "baseRrpCalculation_MultiBuySKUList" d
+        FROM "baseRrpCalculation_MultiBuySKUListResolved" d
     )
     UPDATE "tEventOfferDetail" e
     SET
@@ -1725,7 +2102,7 @@ END,
         "extendedAdvertisedPrice" = ROUND(c.calc_units) * COALESCE(c.new_advertisedPriceGst, 0) ,
         "everydayCost" = COALESCE(c.natAvgCost, 0) ,
         "futureEdPrice" = c.future_rrp_price,
-        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
+        "futureEdEffectiveDate" = c.future_rrp_effective_date,
         "incrementalSales"=Round(Round(c.categoryFcst*ROUND(c.new_advertisedPriceGst,2),2) - (ROUND(c.calc_units)*c.new_everydayPriceGst),2) ,
         "incrementalTrade$" =  ROUND( ROUND((c.new_advertisedPrice - ROUND(COALESCE(c."vendorCostPerEach",0),2)) * c.categoryFcst,2) - ROUND((Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2)-ROUND(COALESCE(c."vendorCostPerEach",0),2) )*ROUND(c.calc_units),2), 2) ,
         "forecastTradeMargin%" = CASE
@@ -1909,6 +2286,7 @@ END IF;
         WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
           AND pld."isActive"
           AND pld.company = v_company
+          AND pld."startDate" <= CURRENT_DATE
           AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
     ),
 
@@ -1928,13 +2306,56 @@ END IF;
         GROUP BY "sku","country"
     ),
 
+    "futurePricelistDetail" AS (
+        SELECT
+            pld."sku",
+            pld."priceList",
+            pld."priceListPrice",
+            pld."startDate",
+            pld."country",
+            ROW_NUMBER() OVER (
+                PARTITION BY pld."sku",pld."country",
+                CASE
+                    WHEN pld."priceList" = '050' THEN 'clearance'
+                    WHEN pld."priceList" = '184' THEN 'special_184'
+                    WHEN pld."priceList" = '499' THEN 'nz_clearance_499'
+                    WHEN pld."priceList" = '498' THEN 'nz_special_498'
+                    WHEN pld."priceList" IN ('390','419','824','343','446','241') THEN 'au_primary'
+                    WHEN pld."priceList" = '036' THEN 'au_fallback'
+                    WHEN pld."priceList" IN ('371','274','211','044','134','021') THEN 'nz_primary'
+                    WHEN pld."priceList" = '492' THEN 'nz_fallback'
+                END
+                ORDER BY pld."startDate" ASC
+            ) AS group_rn
+        FROM "tPriceListDetail" pld
+        INNER JOIN "tPriceList" pl ON pld."priceList" = pl."priceList"
+        WHERE pld."priceList" IN ('050','184','499','498','390','419','824','343','446','241','036','371','274','211','044','134','021','492')
+          AND pld."isActive"
+          AND pld.company = v_company
+          AND pld."startDate" > CURRENT_DATE
+          AND pld."sku" IN (SELECT "sku" FROM "offerSkus")
+    ),
+
+    "future_pivoted_prices" AS (
+        SELECT
+            "sku","country",
+            MAX(CASE WHEN "priceList" = '050' AND group_rn = 1 THEN "priceListPrice" END) AS priceList50,
+            MAX(CASE WHEN "priceList" = '184' AND group_rn = 1 THEN "priceListPrice" END) AS priceList184,
+            MAX(CASE WHEN "priceList" = '499' AND group_rn = 1 THEN "priceListPrice" END) AS priceList499,
+            MAX(CASE WHEN "priceList" = '498' AND group_rn = 1 THEN "priceListPrice" END) AS priceList498,
+            MAX(CASE WHEN "priceList" IN ('390','419','824','343','446','241') AND group_rn = 1 THEN "priceListPrice" END) AS au_primary_price,
+            MAX(CASE WHEN "priceList" = '036' AND group_rn = 1 THEN "priceListPrice" END) AS au_fallback_price_036,
+            MAX(CASE WHEN "priceList" IN ('371','274','211','044','134','021') AND group_rn = 1 THEN "priceListPrice" END) AS nz_primary_price,
+            MAX(CASE WHEN "priceList" = '492' AND group_rn = 1 THEN "priceListPrice" END) AS nz_fallback_price_492,
+            MIN(CASE WHEN group_rn = 1 THEN "startDate" END) AS "futurePriceListStartDate"
+        FROM "futurePricelistDetail"
+        WHERE group_rn = 1
+        GROUP BY "sku","country"
+    ),
+
     "future_ppr" AS (
         SELECT ppr_future."sku", ppr_future."company",
-               ppr_future."pricePoint6IncludingGst", ppr_future."startDate",
-               ROW_NUMBER() OVER (
-                   PARTITION BY ppr_future."sku", ppr_future."company"
-                   ORDER BY ppr_future."startDate" ASC
-               ) AS rn
+               ppr_future."pricePoint6IncludingGst", ppr_future."startDate"
         FROM "tPriceProductRules" ppr_future
         WHERE ppr_future."startDate" > CURRENT_DATE
           AND ppr_future."isActive" = TRUE
@@ -1964,7 +2385,7 @@ END IF;
             ppr."pricePoint6",
             ppr."pricePoint6IncludingGst",
             future_ppr."pricePoint6IncludingGst" AS "futurePricePoint6IncludingGst",
-            future_ppr."startDate" AS "futureEdEffectiveDate",
+            future_ppr."startDate" AS "futurePprStartDate",
             eod."isCategoryForecastLocked",
             p."vendorCostPerEach",
             p."nationalAvgCost" ,
@@ -1981,7 +2402,17 @@ END IF;
             pp.au_primary_price,
             pp.au_fallback_price_036,
             pp.nz_primary_price,
-            pp.nz_fallback_price_492
+            pp.nz_fallback_price_492,
+
+            fpp.priceList50 AS "futurePriceList50",
+            fpp.priceList184 AS "futurePriceList184",
+            fpp.priceList499 AS "futurePriceList499",
+            fpp.priceList498 AS "futurePriceList498",
+            fpp.au_primary_price AS "futureAuPrimaryPrice",
+            fpp.au_fallback_price_036 AS "futureAuFallbackPrice036",
+            fpp.nz_primary_price AS "futureNzPrimaryPrice",
+            fpp.nz_fallback_price_492 AS "futureNzFallbackPrice492",
+            fpp."futurePriceListStartDate"
 
         FROM "tEventOfferDetail" eod
         INNER JOIN "tEventOffer" eoh
@@ -2001,8 +2432,8 @@ END IF;
         LEFT JOIN "future_ppr" future_ppr
             ON future_ppr."sku" = eod."sku"
             AND future_ppr."company" = eh."company"
-            AND future_ppr.rn = 1
         LEFT JOIN "pivoted_prices" pp ON pp."sku" = eod."sku" AND pp."country" = eh."country"
+        LEFT JOIN "future_pivoted_prices" fpp ON fpp."sku" = eod."sku" AND fpp."country" = eh."country"
         LEFT JOIN "tInventory" inv
             ON inv."sku" = eod."sku"
             AND inv."company" IN (eh."company",'12','52')
@@ -2047,7 +2478,16 @@ END IF;
             pp.au_primary_price,
             pp.au_fallback_price_036,
             pp.nz_primary_price,
-            pp.nz_fallback_price_492
+            pp.nz_fallback_price_492,
+            fpp.priceList50,
+            fpp.priceList184,
+            fpp.priceList499,
+            fpp.priceList498,
+            fpp.au_primary_price,
+            fpp.au_fallback_price_036,
+            fpp.nz_primary_price,
+            fpp.nz_fallback_price_492,
+            fpp."futurePriceListStartDate"
     ),
 
     "baseRrpCalculation_PriceOnlySKUList" AS (
@@ -2100,6 +2540,16 @@ END IF;
                             )
                     END
                 END AS base_rrp_price,
+            -- Future price-list waterfall result (special -> primary -> fallback),
+            -- computed independently of source so it can be compared against the
+            -- future PPR pricePoint6 result below and the earlier date can win.
+            CASE
+                WHEN d."country" = 'AU' THEN
+                    COALESCE(LEAST(d."futurePriceList50", d."futurePriceList184"), d."futureAuPrimaryPrice", d."futureAuFallbackPrice036")
+                WHEN d."country" = 'NZ' THEN
+                    COALESCE(LEAST(d."futurePriceList499", d."futurePriceList498"), d."futureNzPrimaryPrice", d."futureNzFallbackPrice492")
+            END AS future_pricelist_rrp,
+            -- Future PPR pricePoint6 result, rounded the same way as base_rrp_price's fallback.
             CASE
                 WHEN d."futurePricePoint6IncludingGst" IS NULL THEN NULL
                 ELSE
@@ -2115,8 +2565,30 @@ END IF;
                             ELSE CEILING(ROUND(d."futurePricePoint6IncludingGst", 2))
                         END, 2
                     )
-            END AS future_rrp_price
+            END AS future_ppr_rrp
         FROM updateEventOfferDtlForPriceOnlySKUList d
+    ),
+
+    "baseRrpCalculation_PriceOnlySKUListResolved" AS (
+        SELECT
+            d.*,
+            CASE
+                WHEN d.future_pricelist_rrp IS NOT NULL
+                     AND (d."futurePprStartDate" IS NULL OR d."futurePriceListStartDate" <= d."futurePprStartDate")
+                THEN d.future_pricelist_rrp
+                WHEN d.future_ppr_rrp IS NOT NULL
+                THEN d.future_ppr_rrp
+                ELSE d.future_pricelist_rrp
+            END AS future_rrp_price,
+            CASE
+                WHEN d.future_pricelist_rrp IS NOT NULL
+                     AND (d."futurePprStartDate" IS NULL OR d."futurePriceListStartDate" <= d."futurePprStartDate")
+                THEN d."futurePriceListStartDate"
+                WHEN d.future_ppr_rrp IS NOT NULL
+                THEN d."futurePprStartDate"
+                ELSE d."futurePriceListStartDate"
+            END AS future_rrp_effective_date
+        FROM "baseRrpCalculation_PriceOnlySKUList" d
     ),
 
     calculationsForEventOfferDtlPriceOnlySKUList AS (
@@ -2130,7 +2602,7 @@ END IF;
             ELSE d."categoryforecast" END as categoryFcst,
             ROUND(d."nationalAvgCost",2) as natAvgCost
 
-        FROM "baseRrpCalculation_PriceOnlySKUList" d
+        FROM "baseRrpCalculation_PriceOnlySKUListResolved" d
     )
     ---Price Only (SKU LISt)
     UPDATE "tEventOfferDetail" e
@@ -2162,7 +2634,7 @@ END IF;
         "extendedAdvertisedPrice" = ROUND(c.calc_units) * COALESCE(c.new_everydayPriceGst, 0) ,
         "everydayCost" = COALESCE(c.natAvgCost, 0) ,
         "futureEdPrice" = c.future_rrp_price,
-        "futureEdEffectiveDate" = c."futureEdEffectiveDate",
+        "futureEdEffectiveDate" = c.future_rrp_effective_date,
         "incrementalSales"=Round(Round(c.categoryFcst*ROUND(c.new_everydayPriceGst,2),2) - (ROUND(c.calc_units)*c.new_everydayPriceGst),2) ,
         "incrementalTrade$" =  ROUND( ROUND((c.new_everydayPriceExGst - ROUND(COALESCE(c."vendorCostPerEach",0),2)) * c.categoryFcst,2) - ROUND((Round(c.new_everydayPriceGst / (1 + COALESCE(c.gst_value, 0)),2)-ROUND(COALESCE(c."vendorCostPerEach",0),2) )*ROUND(c.calc_units),2), 2) ,
         "forecastTradeMargin%" = CASE

@@ -280,7 +280,11 @@ AS $BODY$
 
       IF EXISTS (SELECT 1 FROM public."tPriceListDetail_temp") THEN
 
-
+          -- Deactivate rows no longer matched by their OWN window: a current
+          -- row needs a temp row currently in effect; a future row (startDate
+          -- in the future) needs a temp row still dated in the future for the
+          -- same key, so an already-ingested future row isn't retired before
+          -- its startDate arrives just because it isn't "current" yet.
           UPDATE public."tPriceListDetail"
           SET "isActive" = FALSE,
               "updatedAt" = (NOW() AT TIME ZONE 'Australia/Sydney')
@@ -292,14 +296,23 @@ AS $BODY$
                   AND t.country ="tPriceListDetail".country
                   AND t."priceList" = "tPriceListDetail"."priceList"
                   AND t.sku  = "tPriceListDetail".sku
-                  AND t."startDate" <= CURRENT_DATE
-                  AND t."endDate"   >= CURRENT_DATE
+                  AND (
+                        ("tPriceListDetail"."startDate" <= CURRENT_DATE
+                         AND t."startDate" <= CURRENT_DATE
+                         AND t."endDate"   >= CURRENT_DATE)
+                     OR ("tPriceListDetail"."startDate" > CURRENT_DATE
+                         AND t."startDate" > CURRENT_DATE)
+                  )
             );
 
           GET DIAGNOSTICS v_pricelistdetail_inactive = ROW_COUNT;
           RAISE NOTICE 'tPriceListDetail: Marked % existing records as inactive',
               v_pricelistdetail_inactive;
 
+          -- Current window: one row per key, latest startDate <= today.
+          -- Future window: one row per key, nearest startDate > today.
+          -- Both can be inserted/upserted side by side now that the unique
+          -- key includes "startDate" (see Migrations/add_startdate_to_pricelist_and_pricerules_keys.sql).
           WITH dedup AS (
               SELECT *,
                      ROW_NUMBER() OVER (
@@ -309,6 +322,20 @@ AS $BODY$
               FROM public."tPriceListDetail_temp"
               WHERE "startDate" <= CURRENT_DATE
                 AND "endDate"   >= CURRENT_DATE
+          ),
+          dedup_future AS (
+              SELECT *,
+                     ROW_NUMBER() OVER (
+                         PARTITION BY company, country, "priceList", sku
+                         ORDER BY "startDate" ASC
+                     ) AS rn
+              FROM public."tPriceListDetail_temp"
+              WHERE "startDate" > CURRENT_DATE
+          ),
+          combined AS (
+              SELECT * FROM dedup WHERE rn = 1
+              UNION ALL
+              SELECT * FROM dedup_future WHERE rn = 1
           )
           INSERT INTO public."tPriceListDetail" (
               company,
@@ -337,12 +364,10 @@ AS $BODY$
               TRUE AS "isActive",
               (NOW() AT TIME ZONE 'Australia/Sydney') AS "createdAt",
               (NOW() AT TIME ZONE 'Australia/Sydney') AS "updatedAt"
-          FROM dedup t
-          WHERE rn = 1
-          ON CONFLICT (company, country, "priceList", sku)
+          FROM combined t
+          ON CONFLICT (company, country, "priceList", sku, "startDate")
           DO UPDATE SET
               "dateAdded"              = EXCLUDED."dateAdded",
-              "startDate"              = EXCLUDED."startDate",
               "endDate"                = EXCLUDED."endDate",
               "gstInclusiveIndicator"  = EXCLUDED."gstInclusiveIndicator",
               "priceListPrice"         = EXCLUDED."priceListPrice",
