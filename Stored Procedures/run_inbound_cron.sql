@@ -52,14 +52,28 @@ BEGIN
         RAISE EXCEPTION 'Aborting: Rolling back entire batch';
     END;
 
-	-- Step 6
+	-- Step 6: Safeguard — only run the sync if it's after 05:30 Sydney
+    -- AND all reference data is present for BOTH countries. This prevents
+    -- a missing/half-loaded source table from deactivating everything.
+    
     BEGIN
+    
+    IF (CURRENT_TIMESTAMP AT TIME ZONE 'Australia/Sydney')::time < TIME '05:30:00' THEN
+        RAISE NOTICE 'Step 6 skipped: before 05:30 Sydney';
+
+    ELSIF EXISTS (SELECT 1 FROM "tProducts" WHERE "country" = 'AU' AND "isActive")
+       AND EXISTS (SELECT 1 FROM "tProducts" WHERE "country" = 'NZ' AND "isActive")
+       AND EXISTS (SELECT 1 FROM "tPriceProductRules" WHERE "country" = 'AU' AND "isActive")
+       AND EXISTS (SELECT 1 FROM "tPriceProductRules" WHERE "country" = 'NZ' AND "isActive")
+       AND EXISTS (SELECT 1 FROM "tPriceListDetail" WHERE "country" = 'AU' AND "isActive")
+       AND EXISTS (SELECT 1 FROM "tPriceListDetail" WHERE "country" = 'NZ' AND "isActive")
+    THEN
         CALL public.sp_update_offer_and_sku_details();
         RAISE NOTICE 'Step 6 completed';
-    EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'Step 6 FAILED: %', SQLERRM;
-        RAISE EXCEPTION 'Aborting: Rolling back entire batch';
-    END;
+
+    ELSE
+        RAISE NOTICE 'Step 6 skipped: reference data missing';
+    END IF;
 
     RAISE NOTICE 'All steps completed successfully.';
 
