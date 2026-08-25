@@ -64,7 +64,6 @@ END AS "commercialOfferType",
  FROM public."tEvent" eh 
  INNER JOIN public."tEventOffer" eo 
  ON eh."eventId" = eo."eventId" 
- AND eo."isOfferActive" = TRUE
  INNER JOIN public."tEventPage" ep 
  ON ep."eventId" = eo."eventId" 
  AND ep.page = eo.page 
@@ -74,7 +73,6 @@ END AS "commercialOfferType",
  AND eod."pagePosition" = eo."pagePosition"
  AND eod."offerNo" = eo."offerNumber"
  AND eod."offerId"::INTEGER = eo."offerId"
- AND eod."isSkuActive" = TRUE
  INNER JOIN public."tProducts" prod
  ON eod.sku = prod.sku 
 WHERE eh."eventId" = p_event_id 
@@ -82,6 +80,7 @@ WHERE eh."eventId" = p_event_id
                 eh."eventType" = 'Retail Catalogue'
                 AND eo."pagePosition" = 0
             )
+ AND ((eh."status" IN ('Open', 'Locked') AND eo."isOfferActive" = TRUE AND eod."isSkuActive" = TRUE) OR (eh."status" IN ('Completed', 'Cancelled')))
 ORDER BY eo.page ASC, eo."pagePosition" ASC, eo."comOfferCategory1" ASC, eo."offerNumber" ASC, prod."partNo" ASC; END; 
 $BODY$;
 
