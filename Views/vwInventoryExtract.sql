@@ -92,7 +92,7 @@ CREATE OR REPLACE VIEW public."vwInventoryExtract" AS
              JOIN "tProducts" p ON eod.sku::text = p.sku::text
              JOIN "tOfferType" ot ON upper(eo."commercialOfferType"::text) = upper(ot."offerType"::text) AND e.country::text = ot.country::text
              LEFT JOIN "tEventPage" ep ON eo."eventId" = ep."eventId" AND eo.page = ep.page
-          WHERE ep."pageDescription" IS NULL OR ep."pageDescription"::text <> 'Tie Up'::text AND NOT (e."eventType"::text = 'Retail Catalogue'::text AND eo."pagePosition" = 0 AND (ep."pageDescription"::text <> ALL (ARRAY['Front Page'::character varying::text, 'Back Page'::character varying::text])))
+          WHERE eod."fromPriceIndicator" = true OR ep."pageDescription" IS NULL OR (ep."pageDescription"::text <> 'Tie Up'::text AND NOT (e."eventType"::text = 'Retail Catalogue'::text AND eo."pagePosition" = 0 AND (ep."pageDescription"::text <> ALL (ARRAY['Front Page'::character varying::text, 'Back Page'::character varying::text]))))
           AND ((e."status" IN ('Open', 'Locked') AND eo."isOfferActive" = TRUE AND eod."isSkuActive" = TRUE) OR (e."status" IN ('Completed', 'Cancelled')))
         ), ranked AS (
          SELECT b."EVENTID",
@@ -222,6 +222,7 @@ CREATE OR REPLACE VIEW public."vwInventoryExtract" AS
             r."INCRFCST",
                 CASE
                     WHEN r."PURCHQTY" IS NOT NULL AND r."PURCHQTY" > 0 THEN 1
+                    WHEN r."FROMPRCIND"=True THEN 1
                     WHEN r.apply_rules = 0 THEN 1
                     WHEN r.apply_rules = 1 AND r.is_tieup = 1 THEN 1
                     WHEN r.apply_rules = 1 AND r.is_tieup = 0 AND r.rn_non_tie IS NOT NULL AND r.rn_non_tie <= GREATEST(0::bigint, 5 - r.tieup_count) THEN 1
