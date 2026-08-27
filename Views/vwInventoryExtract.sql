@@ -35,10 +35,7 @@ CREATE OR REPLACE VIEW public."vwInventoryExtract" AS
                     WHEN eo."categoryCostType"::text = 'ON PURCHASE'::text THEN round(eod."categoryCost", 2)
                     ELSE 0::numeric
                 END AS "CATCOST",
-                CASE
-                    WHEN eo."OfferTypeId" = ANY (ARRAY[1, 4, 13, 17, 5]) THEN eo."purchaseQuantity"::integer
-                    ELSE eod."purchaseQuantity"
-                END AS "PURCHQTY",
+                 eod."purchaseQuantity" AS "PURCHQTY",
             round(eod.categoryforecast::numeric, 2) AS "CATFCST",
             round(eod."incrementalForecast"::numeric, 2) AS "INCRFCST",
             false AS "FLWAEXCL",
