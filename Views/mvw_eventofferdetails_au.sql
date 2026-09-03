@@ -79,7 +79,9 @@ AS
     "tblEVENTOFFERDTL_Legacy"."UPDATED",
     "tblEVENTOFFERDTL_Legacy"."InventoryReviewInd",
     "tblEVENTOFFERDTL_Legacy"."RAUCLRIND",
-    "tblEVENTOFFERDTL_Legacy"."OM"
+    "tblEVENTOFFERDTL_Legacy"."OM",
+    NULL::numeric AS "SCANSUPPORT%",
+    NULL::numeric AS "SCANSUPPORT$"
    FROM "tblEVENTOFFERDTL_Legacy"
      JOIN "tblEVENTHDR_Legacy" ON "tblEVENTOFFERDTL_Legacy"."EVENTID" = "tblEVENTHDR_Legacy"."EVENTID" AND "tblEVENTOFFERDTL_Legacy"."COUNTRY"::text = "tblEVENTHDR_Legacy"."COUNTRY"::text
   WHERE "tblEVENTOFFERDTL_Legacy"."COUNTRY"::text ~~ 'AU%'::text AND "tblEVENTHDR_Legacy"."STARTDTE" >= '2022-01-01'::date AND ("tblEVENTOFFERDTL_Legacy"."PAGEPOSN" <> 0 AND upper("tblEVENTHDR_Legacy"."EVENTTYPE"::text) = 'RETAIL CATALOGUE'::text OR upper("tblEVENTHDR_Legacy"."EVENTTYPE"::text) <> 'RETAIL CATALOGUE'::text)
@@ -164,7 +166,10 @@ UNION ALL
     "tEventOfferDetail".updated AS "UPDATED",
     "tEventOfferDetail"."inventoryReviewIndicator" AS "InventoryReviewInd",
     "tEventOfferDetail"."clearanceIndicator" AS "RAUCLRIND",
-    NULL::numeric AS "OM"
+    NULL::numeric AS "OM",
+    "tEventOfferDetail"."scanSupport%" AS "SCANSUPPORT%",
+    "tEventOfferDetail"."scanSupport$" AS "SCANSUPPORT$"
+	
    FROM "tEventOfferDetail"
      JOIN "tEventOffer" ON "tEventOffer"."offerId" = "tEventOfferDetail"."offerId" AND "tEventOffer"."offerNumber" = "tEventOfferDetail"."offerNo" AND "tEventOffer"."isOfferActive" = true
      JOIN "tEvent" ON "tEvent"."eventId" = "tEventOfferDetail"."eventId" AND "tEvent".country::text = "tEventOfferDetail".country::text
